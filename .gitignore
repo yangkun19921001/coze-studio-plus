@@ -60,3 +60,5 @@ values-dev.yaml
 
 *.tsbuildinfo
 
+
+**debug_bin**
