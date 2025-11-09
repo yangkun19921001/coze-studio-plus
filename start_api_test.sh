@@ -42,7 +42,7 @@ if [ $# -eq 2 ]; then
         request_body=$(jq -n \
             --arg wid "$workflow_id" \
             --arg text "$user_text" \
-            '{workflow_id: $wid, parameters: {user_input: $text}}')
+            '{workflow_id: $wid, parameters: {input: $text}}')
         
         curl -s -X POST "$BASE_URL/v1/workflow/run" \
             -H "Authorization: Bearer $API_KEY" \
@@ -53,7 +53,7 @@ if [ $# -eq 2 ]; then
         curl -s -X POST "$BASE_URL/v1/workflow/run" \
             -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" \
-            -d '{"workflow_id":"'$workflow_id'","parameters":{"user_input":"'$user_text_escaped'"}}'
+            -d '{"workflow_id":"'$workflow_id'","parameters":{"input":"'$user_text_escaped'"}}'
     fi
     
     exit 0
@@ -68,8 +68,13 @@ echo "🌐 Base URL: $BASE_URL"
 echo "🔑 认证方式: Bearer Token (OpenAPI)"
 echo ""
 
-# 检查后端服务是否运行
-if ! curl -s "$BASE_URL/api/health" > /dev/null 2>&1; then
+# 检查后端服务是否运行（使用 OpenAPI 接口测试）
+test_response=$(curl -s -X POST "$BASE_URL/v1/workflow/run" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"workflow_id":"test"}' 2>&1)
+
+if echo "$test_response" | grep -q "Connection refused\|Could not resolve host"; then
     echo -e "${RED}❌ 错误：后端服务未运行！${NC}"
     echo "   请先启动后端服务："
     echo "   1. 运行: ./start_vs_debug.sh"
@@ -95,10 +100,9 @@ show_menu() {
     echo "  0️⃣  列出所有工作流（必看！）"
     echo "  1️⃣  运行工作流（同步）"
     echo "  2️⃣  运行工作流（异步）"
-    echo "  3️⃣  查询执行结果"
-    echo "  4️⃣  获取执行历史"
-    echo "  5️⃣  快速测试（简化版）"
-    echo "  6️⃣  查看使用说明"
+    echo "  3️⃣  获取工作流信息"
+    echo "  4️⃣  快速测试（简化版）"
+    echo "  5️⃣  查看使用说明"
     echo "  9️⃣  退出"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -200,11 +204,11 @@ test_run_workflow_sync() {
         
         # 使用 jq 构建 JSON（自动转义）
         if command -v jq &> /dev/null; then
-            parameters=$(jq -n --arg text "$user_text" '{user_input: $text}')
+            parameters=$(jq -n --arg text "$user_text" '{input: $text}')
         else
             # 简单转义（可能不完美）
             user_text_escaped=$(echo "$user_text" | sed 's/"/\\"/g' | sed "s/'/\\'/g")
-            parameters="{\"user_input\":\"$user_text_escaped\"}"
+            parameters="{\"input\":\"$user_text_escaped\"}"
         fi
     else
         read -p "请输入 JSON 参数: " parameters
@@ -260,10 +264,10 @@ test_run_workflow_async() {
         
         # 使用 jq 构建 JSON（自动转义）
         if command -v jq &> /dev/null; then
-            parameters=$(jq -n --arg text "$user_text" '{user_input: $text}')
+            parameters=$(jq -n --arg text "$user_text" '{input: $text}')
         else
             user_text_escaped=$(echo "$user_text" | sed 's/"/\\"/g' | sed "s/'/\\'/g")
-            parameters="{\"user_input\":\"$user_text_escaped\"}"
+            parameters="{\"input\":\"$user_text_escaped\"}"
         fi
     else
         read -p "请输入 JSON 参数: " parameters
@@ -438,14 +442,14 @@ show_help() {
     echo ""
     echo "   方式1: 简单模式（推荐）"
     echo "   ├─ 直接输入文本内容"
-    echo "   └─ 自动构建为: {\"user_input\": \"你的内容\"}"
+    echo "   └─ 自动构建为: {\"input\": \"你的内容\"}"
     echo ""
     echo "   方式2: 高级模式"
     echo "   ├─ 手动输入完整 JSON"
     echo "   └─ 例如: {\"question\": \"什么是AI?\", \"lang\": \"zh\"}"
     echo ""
     echo "🔧 参数格式示例（仅高级模式需要）："
-    echo "   {\"user_input\": \"你好\"}"
+    echo "   {\"input\": \"你好\"}"
     echo "   {\"question\": \"什么是AI?\"}"
     echo "   {\"text\": \"要处理的文本\", \"max_length\": \"100\"}"
     echo ""
@@ -457,7 +461,7 @@ show_help() {
     echo "     -d '{"
     echo "       \"workflow_id\": \"123\","
     echo "       \"parameters\": {"
-    echo "         \"user_input\": \"你好\""
+    echo "         \"input\": \"你好\""
     echo "       }"
     echo "     }'"
     echo ""
@@ -473,7 +477,7 @@ show_help() {
     echo "   data = {"
     echo "       'workflow_id': '123',"
     echo "       'parameters': {"
-    echo "           'user_input': '你好'"
+    echo "           'input': '你好'"
     echo "       }"
     echo "   }"
     echo "   response = requests.post(url, headers=headers, json=data)"
@@ -482,7 +486,8 @@ show_help() {
     echo "⚠️  注意："
     echo "   - parameters 是 JSON 对象，不是字符串"
     echo "   - 参数名取决于你的工作流入口节点定义"
-    echo "   - 常见参数名: user_input, input, query, text 等"
+    echo "   - 常见参数名: input, query, text, user_input 等"
+    echo "   - 本工具默认使用 'input' 作为参数名"
     echo ""
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""

@@ -383,6 +383,10 @@ func getReasoningContent(message *schema.Message) string {
 }
 
 func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2.BuildOption) (any, error) {
+	fmt.Println("----------------------------------------")
+	fmt.Println("🔧 LLM Node Build Started!")
+	fmt.Println("----------------------------------------")
+
 	var (
 		err                   error
 		chatModel, fallbackM  modelbuilder.BaseChatModel
@@ -416,8 +420,22 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 	}
 
 	fcParams := c.FCParam
+	fmt.Printf("🔧 fcParams == nil? %v\n", fcParams == nil)
 	if fcParams != nil {
+		fmt.Println("🔧 fcParams is NOT nil")
+
 		if fcParams.WorkflowFCParam != nil {
+			fmt.Printf("🔧 PluginFCParam has %d plugins\n",
+				len(fcParams.PluginFCParam.PluginList))
+
+			// 遍历插件列表
+			for i, p := range fcParams.PluginFCParam.PluginList {
+				fmt.Printf("  Plugin %d:\n", i+1)
+				fmt.Printf("    PluginID: %s\n", p.PluginID)
+				fmt.Printf("    ApiId: %s\n", p.ApiId)
+				fmt.Printf("    ApiName: %s\n", p.ApiName)
+			}
+
 			for _, wf := range fcParams.WorkflowFCParam.WorkflowList {
 				wfIDStr := wf.WorkflowID
 				wfID, err := strconv.ParseInt(wfIDStr, 10, 64)
@@ -456,6 +474,8 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 					toolsReturnDirectly[toolInfo.Name] = true
 				}
 			}
+		} else {
+			fmt.Println("❌ PluginFCParam is nil!")
 		}
 
 		if fcParams.PluginFCParam != nil {
@@ -564,6 +584,8 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 			}
 			knowledgeRecallConfig.SelectedKnowledgeDetails = detailResp.KnowledgeDetails
 		}
+	} else {
+		fmt.Println("❌ fcParams is nil!")
 	}
 
 	g := compose.NewGraph[map[string]any, map[string]any](
@@ -646,6 +668,15 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 	}
 
 	if len(tools) > 0 {
+		fmt.Println("----------------------------------------")
+		fmt.Printf("✅ Found %d tools, building React Agent\n", len(tools))
+		fmt.Println("----------------------------------------")
+
+		for i, t := range tools {
+			info, _ := t.Info(ctx)
+			fmt.Printf("  Tool %d: %s\n", i+1, info.Name)
+		}
+
 		m, ok := modelWithInfo.(model.ToolCallingChatModel)
 		if !ok {
 			return nil, errors.New("requires a ToolCallingChatModel to use with tools")
@@ -673,6 +704,10 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 		opts = append(opts, compose.WithNodeName(reactGraphName))
 		_ = g.AddGraphNode(llmNodeKey, agentNode, opts...)
 	} else {
+		fmt.Println("----------------------------------------")
+		fmt.Println("❌ No tools found, using plain ChatModel")
+		fmt.Println("----------------------------------------")
+
 		_ = g.AddChatModelNode(llmNodeKey, modelWithInfo)
 	}
 

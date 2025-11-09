@@ -678,9 +678,15 @@ func (t *toolExecutor) execute(ctx context.Context, argumentsInJson, accessToken
 }
 
 func (t *toolExecutor) processResponse(ctx context.Context, rawResp string) (trimmedResp string, err error) {
+	fmt.Println("----------------------------------------")
+	fmt.Println("🔧 processResponse called")
+	fmt.Printf("🔧 Raw response length: %d bytes\n", len(rawResp))
+	fmt.Println("----------------------------------------")
+
 	responses := t.tool.Operation.Responses
 	if len(responses) == 0 {
-		return "", nil
+		fmt.Println("✅ No response schema defined, returning raw response")
+		return rawResp, nil
 	}
 
 	resp, ok := responses[strconv.Itoa(http.StatusOK)]
@@ -703,39 +709,65 @@ func (t *toolExecutor) processResponse(ctx context.Context, rawResp string) (tri
 
 	schemaVal := mType.Schema.Value
 	if len(schemaVal.Properties) == 0 {
-		return "", nil
+		fmt.Println("✅ Schema has no properties, returning raw response")
+		return rawResp, nil
 	}
 
-	var trimmedRespMap map[string]any
-	switch t.invalidRespProcessStrategy {
-	case consts.InvalidResponseProcessStrategyOfReturnRaw:
-		trimmedRespMap, err = t.processWithInvalidRespProcessStrategyOfReturnRaw(ctx, respMap, schemaVal)
-		if err != nil {
-			return "", err
+	// 🔧 WORKAROUND: Function Calling 场景下，如果插件 schema 不完整（比如数组元素没有定义子字段），
+	// 会导致数据被错误清空。为了避免这个问题，直接返回原始响应，让 LLM 自己处理。
+	// TODO: 更好的解决方案是修复 processWithInvalidRespProcessStrategyOfReturnDefault 的逻辑
+	fmt.Println("⚠️  Skipping response processing for Function Calling (workaround for incomplete schema)")
+	fmt.Println("✅ Returning raw response directly")
+	fmt.Println("----------------------------------------")
+	return rawResp, nil
+
+	// 原有的处理逻辑（暂时跳过）
+	/*
+		fmt.Printf("🔧 Schema has %d properties, will process response\n", len(schemaVal.Properties))
+		fmt.Printf("🔧 invalidRespProcessStrategy: %d\n", t.invalidRespProcessStrategy)
+
+		var trimmedRespMap map[string]any
+		switch t.invalidRespProcessStrategy {
+		case consts.InvalidResponseProcessStrategyOfReturnRaw:
+			trimmedRespMap, err = t.processWithInvalidRespProcessStrategyOfReturnRaw(ctx, respMap, schemaVal)
+			if err != nil {
+				return "", err
+			}
+
+		case consts.InvalidResponseProcessStrategyOfReturnDefault:
+			trimmedRespMap, err = t.processWithInvalidRespProcessStrategyOfReturnDefault(ctx, respMap, schemaVal)
+			if err != nil {
+				return "", err
+			}
+
+		case consts.InvalidResponseProcessStrategyOfReturnErr:
+			trimmedRespMap, err = t.processWithInvalidRespProcessStrategyOfReturnErr(ctx, respMap, schemaVal)
+			if err != nil {
+				return "", err
+			}
+
+		default:
+			return rawResp, fmt.Errorf("invalid response process strategy '%d'", t.invalidRespProcessStrategy)
 		}
 
-	case consts.InvalidResponseProcessStrategyOfReturnDefault:
-		trimmedRespMap, err = t.processWithInvalidRespProcessStrategyOfReturnDefault(ctx, respMap, schemaVal)
+		trimmedResp, err = sonic.MarshalString(trimmedRespMap)
 		if err != nil {
-			return "", err
+			return "", errorx.Wrapf(err, "marshal trimmed response failed")
 		}
 
-	case consts.InvalidResponseProcessStrategyOfReturnErr:
-		trimmedRespMap, err = t.processWithInvalidRespProcessStrategyOfReturnErr(ctx, respMap, schemaVal)
-		if err != nil {
-			return "", err
+		fmt.Println("----------------------------------------")
+		fmt.Printf("🔧 Response processing completed\n")
+		fmt.Printf("🔧 Original response length: %d bytes\n", len(rawResp))
+		fmt.Printf("🔧 Trimmed response length: %d bytes\n", len(trimmedResp))
+		if len(trimmedResp) < 500 {
+			fmt.Printf("🔧 Trimmed response: %s\n", trimmedResp)
+		} else {
+			fmt.Printf("🔧 Trimmed response (first 500 chars): %s...\n", trimmedResp[:500])
 		}
+		fmt.Println("----------------------------------------")
 
-	default:
-		return rawResp, fmt.Errorf("invalid response process strategy '%d'", t.invalidRespProcessStrategy)
-	}
-
-	trimmedResp, err = sonic.MarshalString(trimmedRespMap)
-	if err != nil {
-		return "", errorx.Wrapf(err, "marshal trimmed response failed")
-	}
-
-	return trimmedResp, nil
+		return trimmedResp, nil
+	*/
 }
 
 func (t *toolExecutor) processWithInvalidRespProcessStrategyOfReturnRaw(ctx context.Context, paramVals map[string]any, paramSchema *openapi3.Schema) (map[string]any, error) {
