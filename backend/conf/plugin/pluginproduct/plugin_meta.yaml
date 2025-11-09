@@ -906,3 +906,41 @@
       deprecated: false
       method: get
       sub_url: /v5/place/around
+- plugin_id: 101
+  product_id: 7600000000000000101
+  deprecated: false
+  version: v1.0.0
+  openapi_doc_file: pairat_remote_exec.yaml
+  plugin_type: 1
+  manifest:
+    schema_version: v1
+    name_for_model: pairat_remote_exec
+    name_for_human: Pairat Remote Exec
+    description_for_model: 通过 MCP 协议在远程机器上执行命令或脚本，支持机器健康检查
+    description_for_human: 远程命令执行工具，基于 MCP 协议实现安全的远程操作
+    auth:
+      type: none
+    logo_url: official_plugin_icon/plugin_remote_exec.png
+    api:
+      type: coze-studio-mcp
+      extensions:
+        mcp_config:
+          transport_type: sse
+          sse_config:
+            url: http://10.1.16.4:8000/mcp/sse
+            headers:
+              Content-Type: application/json
+    common_params:
+      body: []
+      header: []
+      path: []
+      query: []
+  tools:
+    - tool_id: 101001
+      deprecated: false
+      method: post
+      sub_url: /remote_exec
+    - tool_id: 101002
+      deprecated: false
+      method: post
+      sub_url: /vmcheck

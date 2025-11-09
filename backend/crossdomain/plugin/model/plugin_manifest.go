@@ -113,7 +113,7 @@ func (mf *PluginManifest) Validate(skipAuthPayload bool) (err error) {
 			"description for human is required"))
 	}
 
-	if mf.API.Type != consts.PluginTypeOfCloud && mf.API.Type != consts.PluginTypeOfCustom {
+	if mf.API.Type != consts.PluginTypeOfCloud && mf.API.Type != consts.PluginTypeOfCustom && mf.API.Type != consts.PluginTypeOfMCP {
 		return errorx.New(errno.ErrPluginInvalidManifest, errorx.KVf(errno.PluginMsgKey,
 			"invalid api type '%s'", mf.API.Type))
 	}
@@ -525,5 +525,6 @@ type OAuthClientCredentialsConfig struct {
 }
 
 type APIDesc struct {
-	Type consts.PluginType `json:"type" validate:"required"`
+	Type       consts.PluginType      `json:"type" validate:"required"`
+	Extensions map[string]interface{} `json:"extensions,omitempty"`
 }

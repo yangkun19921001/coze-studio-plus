@@ -1,0 +1,111 @@
+info:
+  description: 通过 MCP 协议远程执行命令的工具
+  title: Pairat Remote Exec
+  version: v1
+openapi: 3.0.1
+
+servers:
+  - url: http://10.1.16.4:8000/mcp/sse
+
+paths:
+  /remote_exec:
+    post:
+      operationId: remote_exec
+      summary: 在远程机器上执行命令或脚本
+      description: 通过 MCP 协议连接到远程服务器并执行指定的命令或脚本
+      
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                machineId:
+                  type: string
+                  description: 要执行命令的机器 ID
+                script:
+                  type: string
+                  description: 要执行的脚本或命令（必须来自白名单）
+              required:
+                - machineId
+                - script
+      
+      responses:
+        "200":
+          description: 命令执行成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    description: 执行是否成功
+                  output:
+                    type: string
+                    description: 命令输出结果
+                  error:
+                    type: string
+                    description: 错误信息（如果有）
+                  exitCode:
+                    type: integer
+                    description: 退出码
+        default:
+          description: 执行失败
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: 错误信息
+
+  /vmcheck:
+    post:
+      operationId: vmcheck
+      summary: 检查物理机硬件是否满足创建虚拟机的标准
+      description: 检查物理机的硬件配置是否符合虚拟机创建要求
+      
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                machine_ids:
+                  type: string
+                  description: 要检查的机器 ID 列表，用逗号分隔（如 'id1,id2,id3'）
+              required:
+                - machine_ids
+      
+      responses:
+        "200":
+          description: 检查完成
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    description: 检查是否成功
+                  results:
+                    type: object
+                    description: 各机器的检查结果
+                  message:
+                    type: string
+                    description: 结果描述
+        default:
+          description: 检查失败
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    description: 错误信息
+

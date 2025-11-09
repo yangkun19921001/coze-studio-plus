@@ -285,6 +285,7 @@ require (
 require (
 	github.com/apache/pulsar-client-go v0.16.0
 	github.com/eino-contrib/ollama v0.1.0
+	github.com/mark3labs/mcp-go v0.43.0
 	github.com/nats-io/nats.go v1.34.1
 )
 
@@ -310,6 +311,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.14.1 // indirect
 	github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c // indirect
 	github.com/hamba/avro/v2 v2.26.0 // indirect
+	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mtibben/percent v0.2.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
@@ -317,6 +319,7 @@ require (
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.59.0 // indirect
 	golang.org/x/term v0.32.0 // indirect
 	k8s.io/client-go v0.32.3 // indirect
