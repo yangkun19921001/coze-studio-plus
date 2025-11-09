@@ -1,13 +1,356 @@
 # MCP (Model Context Protocol) 集成方案
 
+**使用 [mcp-go](https://github.com/mark3labs/mcp-go) 开源库实现**
+
 ## 📋 目录
 
 1. [当前状态分析](#当前状态分析)
 2. [MCP 协议概述](#mcp-协议概述)
 3. [架构设计](#架构设计)
 4. [实现方案](#实现方案)
-5. [实施步骤](#实施步骤)
-6. [代码示例](#代码示例)
+5. [使用指南](#使用指南)
+
+---
+
+## 当前状态分析
+
+### ✅ 已完成
+
+1. **插件类型定义**：
+   - `PluginTypeOfMCP = "coze-studio-mcp"` 已定义
+   - 插件执行系统已支持 MCP 类型路由
+
+2. **MCP 客户端实现**：
+   - 使用 [mcp-go v0.43.0](https://github.com/mark3labs/mcp-go) 开源库
+   - `backend/pkg/mcp/client.go` 提供封装层
+   - `backend/domain/plugin/service/tool/invocation_mcp.go` 集成到插件系统
+
+3. **前端支持**：
+   - UI 组件已存在（`mcp-config-btn.tsx`）
+   - 发布配置界面已支持 MCP
+
+---
+
+## MCP 协议概述
+
+### 什么是 MCP？
+
+**Model Context Protocol (MCP)** 是一个开放标准，允许 AI 应用安全地访问外部数据源和工具。
+
+参考：[https://modelcontextprotocol.io/](https://modelcontextprotocol.io/)
+
+### 核心概念
+
+1. **MCP Server**：提供工具和资源的服务器
+2. **MCP Client**：Coze Studio（使用 mcp-go 库）
+3. **Transport**：通信方式（stdio、SSE）
+
+---
+
+## 架构设计
+
+### 整体架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Coze Studio                          │
+│                                                          │
+│  ┌──────────────┐      ┌──────────────┐                │
+│  │  Workflow    │─────▶│   Plugin     │                │
+│  │   Engine     │      │   Service    │                │
+│  └──────────────┘      └──────────────┘                │
+│                              │                          │
+│                              ▼                          │
+│  ┌──────────────────────────────────────────┐        │
+│  │         Plugin Execution Layer             │        │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐ │        │
+│  │  │  HTTP    │  │   MCP    │  │ Custom   │ │        │
+│  │  │ CallImpl │  │ CallImpl │  │ CallImpl │ │        │
+│  │  └──────────┘  └──────────┘  └──────────┘ │        │
+│  └──────────────────────────────────────────┘        │
+│                              │                          │
+└──────────────────────────────┼──────────────────────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │  backend/pkg/mcp/    │
+                    │  (封装层)              │
+                    └──────────────────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │   mcp-go Library     │
+                    │  (github.com/        │
+                    │   mark3labs/mcp-go)  │
+                    └──────────────────────┘
+                               │
+                    ┌──────────┴──────────┐
+                    │                     │
+                    ▼                     ▼
+            ┌──────────────┐    ┌──────────────┐
+            │  stdio       │    │  SSE         │
+            │  Transport   │    │  Transport   │
+            └──────────────┘    └──────────────┘
+                    │                     │
+                    └──────────┬──────────┘
+                               ▼
+                    ┌──────────────────────┐
+                    │    MCP Server        │
+                    │  (外部工具提供者)      │
+                    └──────────────────────┘
+```
+
+### 目录结构
+
+```
+backend/
+├── domain/
+│   └── plugin/
+│       └── service/
+│           └── tool/
+│               ├── invocation_mcp.go          # MCP 调用实现
+│               └── ...
+├── pkg/
+│   └── mcp/                                   # MCP 封装层
+│       └── client.go                          # 封装 mcp-go 库
+└── go.mod                                     # 依赖 github.com/mark3labs/mcp-go
+```
+
+---
+
+## 实现方案
+
+### 使用 mcp-go 开源库（已采用）
+
+**优点**：
+- ✅ 经过充分测试（7.6k+ stars）
+- ✅ 社区维护和持续更新
+- ✅ 完整的 MCP 协议实现
+- ✅ 支持 stdio 和 SSE 传输
+- ✅ 快速集成，减少开发时间
+
+**库地址**：[https://github.com/mark3labs/mcp-go](https://github.com/mark3labs/mcp-go)
+
+---
+
+## 使用指南
+
+### 1. 配置 MCP 插件
+
+在插件 manifest 的 `api.extensions.mcp_config` 字段中配置：
+
+#### Stdio 方式（推荐）：
+
+```json
+{
+  "schema_version": "v1",
+  "name_for_model": "test_mcp_tools",
+  "name_for_human": "测试 MCP 工具",
+  "description_for_model": "通过 MCP 协议提供的测试工具",
+  "description_for_human": "用于测试 MCP 集成的工具",
+  "api": {
+    "type": "coze-studio-mcp",
+    "extensions": {
+      "mcp_config": {
+        "transport_type": "stdio",
+        "stdio_config": {
+          "command": ["node", "/path/to/mcp-server.js"],
+          "env": {
+            "NODE_ENV": "production"
+          },
+          "working_dir": "/path/to/working/directory"
+        }
+      }
+    }
+  }
+}
+```
+
+#### SSE 方式（计划支持）：
+
+```json
+{
+  "schema_version": "v1",
+  "name_for_model": "remote_mcp_tools",
+  "name_for_human": "远程 MCP 工具",
+  "api": {
+    "type": "coze-studio-mcp",
+    "extensions": {
+      "mcp_config": {
+        "transport_type": "sse",
+        "sse_config": {
+          "url": "https://your-mcp-server.com",
+          "api_key": "your-api-key",
+          "headers": {
+            "X-Custom-Header": "value"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+### 2. 创建 MCP 服务器
+
+使用 Node.js 创建简单的 MCP 服务器示例：
+
+```javascript
+#!/usr/bin/env node
+
+const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
+const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+
+const server = new Server(
+  {
+    name: 'test-mcp-server',
+    version: '1.0.0',
+  },
+  {
+    capabilities: {
+      tools: {},
+    },
+  }
+);
+
+// 注册工具列表
+server.setRequestHandler('tools/list', async () => {
+  return {
+    tools: [
+      {
+        name: 'get_time',
+        description: '获取当前时间',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+    ],
+  };
+});
+
+// 处理工具调用
+server.setRequestHandler('tools/call', async (request) => {
+  const { name } = request.params;
+
+  if (name === 'get_time') {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `当前时间: ${new Date().toISOString()}`,
+        },
+      ],
+    };
+  }
+
+  throw new Error(`Unknown tool: ${name}`);
+});
+
+// 启动服务器
+const transport = new StdioServerTransport();
+server.connect(transport);
+console.error('MCP Server Started');
+```
+
+### 3. 在 Workflow 中使用
+
+1. 创建 Workflow
+2. 添加 LLM 节点
+3. 添加 MCP 插件节点
+4. 配置工具调用
+5. 运行测试
+
+---
+
+## 开发指南
+
+### 添加新的传输方式
+
+如需添加新的传输方式（如 WebSocket），编辑 `backend/pkg/mcp/client.go`：
+
+```go
+// 添加新的配置类型
+type WebSocketConfig struct {
+    URL     string
+    APIKey  string
+}
+
+// 在 Config 中添加
+type Config struct {
+    TransportType   TransportType
+    StdioConfig     *StdioConfig
+    SSEConfig       *SSEConfig
+    WebSocketConfig *WebSocketConfig  // 新增
+}
+
+// 在 NewClient 中处理
+case TransportTypeWebSocket:
+    return newWebSocketClient(config.WebSocketConfig)
+```
+
+### 扩展工具能力
+
+mcp-go 库支持的功能：
+- ✅ 工具调用（Tools）
+- ✅ 资源访问（Resources）
+- ✅ 提示词（Prompts）
+- ✅ 会话管理（Sessions）
+
+查看完整 API 文档：[https://mcp-go.dev/](https://mcp-go.dev/)
+
+---
+
+## 故障排查
+
+### 问题 1：无法创建 stdio 客户端
+
+**症状**：`create stdio client failed`
+
+**解决方案**：
+```bash
+# 检查命令路径
+which node
+
+# 检查脚本权限
+chmod +x /path/to/mcp-server.js
+
+# 手动测试
+node /path/to/mcp-server.js
+```
+
+### 问题 2：工具调用失败
+
+**症状**：`call mcp tool failed`
+
+**解决方案**：
+- 检查工具名称是否匹配
+- 检查参数格式
+- 查看日志：`LOG_LEVEL=debug`
+- 测试 MCP 服务器是否正常
+
+### 问题 3：配置解析错误
+
+**症状**：`parse mcp config failed`
+
+**解决方案**：
+- 验证 JSON 格式
+- 确保 `transport_type` 正确
+- 检查必需字段（如 `command`）
+
+---
+
+## 参考资源
+
+- **mcp-go 库**：[https://github.com/mark3labs/mcp-go](https://github.com/mark3labs/mcp-go)
+- **MCP 协议文档**：[https://modelcontextprotocol.io/](https://modelcontextprotocol.io/)
+- **快速开始**：参见 `doc/MCP_Quick_Start.md`
+
+---
+
+**文档版本**：v2.0（使用 mcp-go 库）  
+**创建日期**：2025-11-09  
+**维护者**：开发团队
 
 ---
 
