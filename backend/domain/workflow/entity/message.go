@@ -60,6 +60,7 @@ const (
 	Answer       MessageType = "answer"
 	FunctionCall MessageType = "function_call"
 	ToolResponse MessageType = "tool_response"
+	Tool         MessageType = "tool"
 )
 
 type FunctionInfo struct {
@@ -85,6 +86,7 @@ type ToolResponseInfo struct {
 	FunctionInfo
 	CallID   string
 	Response string
+	Err      string
 }
 
 type ToolType = workflow.PluginType

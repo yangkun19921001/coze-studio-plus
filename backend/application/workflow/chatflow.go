@@ -1030,6 +1030,38 @@ func (w *ApplicationService) convertToChatFlowRunResponseList(ctx context.Contex
 			}
 		}
 		if msg.DataMessage != nil {
+			//将 func call 转为 answer ，并且将 func call 的 content 转为 answer 的 content
+			extra := make(map[string]string)
+			if msg.Type == entity.FunctionCall {
+				msg.Type = entity.Answer
+				// 加入执行工具的 icon（如 🛠️）
+				// 将工具名称显示为绿色
+				arguments, _ := sonic.MarshalString(msg.DataMessage.FunctionCall.Arguments)
+				msg.Content = fmt.Sprintf("\n\n🛠️ **<span style=\"color:green;\">使用工具:%s</span>** \n\n```json\n%s\n```\n\n", msg.DataMessage.FunctionCall.Name, arguments)
+				extra["name"] = msg.DataMessage.FunctionCall.Name
+				extra["arguments"] = arguments
+				extra["call_id"] = msg.DataMessage.FunctionCall.CallID
+			}
+
+			if msg.Type == entity.ToolResponse {
+				msg.Type = entity.Answer
+				msg.Content = fmt.Sprintf("\n\n🛠️ **<span style=\"color:green;\">工具执行结果:%s</span>** \n\n```json\n%s\n```\n", msg.DataMessage.ToolResponse.Name, msg.DataMessage.ToolResponse.Response)
+
+				extra["response"] = msg.DataMessage.ToolResponse.Response
+				extra["call_id"] = msg.DataMessage.ToolResponse.CallID
+				extra["name"] = msg.DataMessage.ToolResponse.Name
+				extra["error"] = msg.DataMessage.ToolResponse.Err
+			}
+
+			if msg.Last {
+				logs.Infof("🧹 [chatflow] msg.Last: %v", msg.Last)
+			}
+
+			if msg.NodeTitle == "结束" && !msg.Last {
+				logs.Infof("🧹 [chatflow] msg.NodeTitle: %v", msg.NodeTitle)
+				return nil, nil
+			}
+
 			if msg.Type != entity.Answer {
 				return nil, schema.ErrNoValue
 			}
@@ -1055,13 +1087,16 @@ func (w *ApplicationService) convertToChatFlowRunResponseList(ctx context.Contex
 					Role:           schema.Assistant,
 					MessageType:    message.MessageTypeAnswer,
 					ContentType:    message.ContentTypeText,
+					Ext:            extra,
 				}
 				messageDetailID = id
 				needRegeneratedMessage = false
 
 			}
 
-			intermediateMessage.Content += msg.Content
+			if !msg.Last {
+				intermediateMessage.Content += msg.Content
+			}
 
 			deltaData, _ := sonic.MarshalString(&vo.MessageDetail{
 				ID:             strconv.FormatInt(messageDetailID, 10),
@@ -1073,6 +1108,7 @@ func (w *ApplicationService) convertToChatFlowRunResponseList(ctx context.Contex
 				Type:           string(dataMessage.Type),
 				ContentType:    string(message.ContentTypeText),
 				Content:        msg.Content,
+				Extra:          extra,
 			})
 
 			if !msg.Last {

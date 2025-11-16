@@ -27,9 +27,14 @@ import { type ImageOptions } from '@coze-arch/bot-md-box-adapter';
 
 import { CozeLink } from '../../md-box-slots/link';
 import { CozeImage } from '../../md-box-slots/coze-image';
+import { CozeReactMarkdown } from '../../markdown';
 import { LazyCozeMdBox } from '../../common/coze-md-box/lazy';
 import { isText } from '../../../utils/is-text';
 import './index.less';
+
+// Feature flag: Use react-markdown instead of Calypso
+// Set to true to use the new react-markdown renderer
+const USE_REACT_MARKDOWN = true;
 
 export type IMessageContentProps = IBaseContentProps & {
   onImageClick?: (params: IOnImageClickParams) => void;
@@ -52,7 +57,6 @@ export const TextContent: FC<IMessageContentProps> = props => {
     enableAutoSizeImage,
     imageOptions,
   } = props;
-  const MdBoxLazy = LazyCozeMdBox;
   const contentRef = useRef<HTMLDivElement | null>(null);
   const { content } = message;
 
@@ -62,6 +66,54 @@ export const TextContent: FC<IMessageContentProps> = props => {
 
   const isStreaming = !message.is_finish;
   const text = content.slice(0, message.broken_pos ?? Infinity);
+
+  // Use react-markdown if feature flag is enabled
+  if (USE_REACT_MARKDOWN) {
+    return (
+      <div
+        className="chat-uikit-text-content"
+        data-testid="bot.ide.chat_area.message.text-answer-message-content"
+        ref={contentRef}
+        data-grab-mark={message.message_id}
+        data-grab-source={message.source}
+      >
+        <CozeReactMarkdown
+          isStreaming={isStreaming}
+          showIndicator={isStreaming}
+          imageOptions={{ forceHttps: !IS_OPEN_SOURCE, ...imageOptions }}
+          eventCallbacks={{
+            onImageClick: (e, eventData) => {
+              eventData.src &&
+                onImageClick?.({
+                  message,
+                  extra: { url: eventData.src },
+                });
+            },
+            onLinkClick: (e, eventData) => {
+              onLinkClick?.(
+                {
+                  message,
+                  extra: { ...eventData },
+                },
+                e,
+              );
+
+              if (readonly) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            },
+          }}
+          mdBoxProps={mdBoxProps}
+        >
+          {text}
+        </CozeReactMarkdown>
+      </div>
+    );
+  }
+
+  // Fallback to Calypso renderer
+  const MdBoxLazy = LazyCozeMdBox;
   return (
     <div
       className="chat-uikit-text-content"

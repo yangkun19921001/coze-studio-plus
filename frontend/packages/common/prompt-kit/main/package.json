@@ -68,7 +68,7 @@
     "mitt": "^3.0.1",
     "nanoid": "^4.0.2",
     "rc-textarea": "^1.6.3",
-    "react-markdown": "^8.0.3",
+    "react-markdown": "^10.1.0",
     "zustand": "^4.4.7"
   },
   "devDependencies": {

@@ -59,7 +59,7 @@ const ChatMessageFooterContent = () => {
           <DeleteMessage key="delete" className={classNames(buttonClass)} />
         ),
         !!lastMessageText && isNeedQuote && (
-          <QuoteMessage className={classNames(buttonClass)} />
+          <QuoteMessage key="quote" className={classNames(buttonClass)} />
         ),
       ]}
       rightContent={[]}

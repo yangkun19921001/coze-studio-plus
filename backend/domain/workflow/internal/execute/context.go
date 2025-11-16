@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/schema"
 
 	workflowModel "github.com/coze-dev/coze-studio/backend/crossdomain/workflow/model"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow"
@@ -60,6 +61,7 @@ type RootCtx struct {
 	RootExecuteID     int64
 	ResumeEvent       *entity.InterruptEvent
 	ExeCfg            workflowModel.ExecuteConfig
+	StreamWriter      *schema.StreamWriter[*entity.Message] // Stream writer for real-time output
 }
 
 type SubWorkflowCtx struct {
@@ -231,6 +233,7 @@ func PrepareRootExeCtx(ctx context.Context, h *WorkflowHandler) (context.Context
 			RootExecuteID:     h.rootExecuteID,
 			ResumeEvent:       h.resumeEvent,
 			ExeCfg:            h.exeCfg,
+			StreamWriter:      h.streamWriter,
 		},
 
 		TokenCollector: newTokenCollector(fmt.Sprintf("wf_%d", h.rootWorkflowBasic.ID), parentTokenCollector),

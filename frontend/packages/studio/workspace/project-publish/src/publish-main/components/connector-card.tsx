@@ -256,10 +256,12 @@ export function ConnectorCard({
               content={
                 <ReactMarkdown
                   skipHtml={true}
-                  linkTarget="_blank"
                   components={{
                     img: props => (
                       <img {...props} className="max-w-[224px] max-h-[208px]" />
+                    ),
+                    a: props => (
+                      <a {...props} target="_blank" rel="noreferrer noopener" />
                     ),
                   }}
                 >
@@ -278,7 +280,7 @@ export function ConnectorCard({
           {description ? (
             <ReactMarkdown
               skipHtml={true}
-              transformLinkUri={false}
+              urlTransform={url => url}
               components={{
                 p: props => (
                   <Typography.Paragraph type="secondary" fontSize="12px">

@@ -899,18 +899,19 @@ func OpenAPIRunFlow(ctx context.Context, c *app.RequestContext) {
 }
 
 type streamRunData struct {
-	Content       *string        `json:"content,omitempty"`
-	ContentType   *string        `json:"content_type,omitempty"`
-	NodeSeqID     *string        `json:"node_seq_id,omitempty"`
-	NodeID        *string        `json:"node_id,omitempty"`
-	NodeIsFinish  *bool          `json:"node_is_finish,omitempty"`
-	NodeType      *string        `json:"node_type,omitempty"`
-	NodeTitle     *string        `json:"node_title,omitempty"`
-	Token         *int64         `json:"token,omitempty"`
-	DebugURL      *string        `json:"debug_url,omitempty"`
-	ErrorCode     *int64         `json:"error_code,omitempty"`
-	ErrorMessage  *string        `json:"error_message,omitempty"`
-	InterruptData *interruptData `json:"interrupt_data,omitempty"`
+	Content       *string            `json:"content,omitempty"`
+	ContentType   *string            `json:"content_type,omitempty"`
+	NodeSeqID     *string            `json:"node_seq_id,omitempty"`
+	NodeID        *string            `json:"node_id,omitempty"`
+	NodeIsFinish  *bool              `json:"node_is_finish,omitempty"`
+	NodeType      *string            `json:"node_type,omitempty"`
+	NodeTitle     *string            `json:"node_title,omitempty"`
+	Token         *int64             `json:"token,omitempty"`
+	DebugURL      *string            `json:"debug_url,omitempty"`
+	ErrorCode     *int64             `json:"error_code,omitempty"`
+	ErrorMessage  *string            `json:"error_message,omitempty"`
+	InterruptData *interruptData     `json:"interrupt_data,omitempty"`
+	ToolInfo      *workflow.ToolInfo `json:"tool_info,omitempty"`
 }
 
 type interruptData struct {
@@ -942,6 +943,7 @@ func convertStreamRunData(msg *workflow.OpenAPIStreamRunFlowResponse) *streamRun
 		ErrorCode:     msg.ErrorCode,
 		ErrorMessage:  msg.ErrorMessage,
 		InterruptData: ie,
+		ToolInfo:      msg.ToolInfo,
 	}
 }
 

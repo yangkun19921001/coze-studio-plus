@@ -51,7 +51,7 @@
     "classnames": "^2.3.2",
     "immer": "^10.0.3",
     "lodash-es": "^4.17.21",
-    "react-markdown": "^8.0.3",
+    "react-markdown": "^10.1.0",
     "zustand": "^4.4.7"
   },
   "devDependencies": {

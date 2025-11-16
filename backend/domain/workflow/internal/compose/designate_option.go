@@ -45,7 +45,8 @@ func (r *WorkflowRunner) designateOptions(ctx context.Context) ([]einoCompose.Op
 		workflowSC   = r.schema
 		eventChan    = r.eventChan
 		resumedEvent = r.interruptEvent
-		sw           = r.container
+		container    = r.container
+		streamWriter = r.sw
 	)
 
 	if wb.AppID != nil && exeCfg.AppID == nil {
@@ -59,7 +60,8 @@ func (r *WorkflowRunner) designateOptions(ctx context.Context) ([]einoCompose.Op
 		eventChan,
 		resumedEvent,
 		exeCfg,
-		workflowSC.NodeCount())
+		workflowSC.NodeCount(),
+		streamWriter)
 
 	opts := []einoCompose.Option{einoCompose.WithCallbacks(rootHandler)}
 
@@ -86,7 +88,7 @@ func (r *WorkflowRunner) designateOptions(ctx context.Context) ([]einoCompose.Op
 				}
 				opts = append(opts, subOpts...)
 			} else if ns.Type == entity.NodeTypeLLM {
-				llmNodeOpts, err := llmToolCallbackOptions(ctx, ns, eventChan, sw)
+				llmNodeOpts, err := llmToolCallbackOptions(ctx, ns, eventChan, container)
 				if err != nil {
 					return nil, err
 				}
@@ -108,7 +110,7 @@ func (r *WorkflowRunner) designateOptions(ctx context.Context) ([]einoCompose.Op
 					opts = append(opts, WrapOpt(subO, parent.Key))
 				}
 			} else if ns.Type == entity.NodeTypeLLM {
-				llmNodeOpts, err := llmToolCallbackOptions(ctx, ns, eventChan, sw)
+				llmNodeOpts, err := llmToolCallbackOptions(ctx, ns, eventChan, container)
 				if err != nil {
 					return nil, err
 				}

@@ -98,6 +98,7 @@ func (m *mcpCallImpl) Do(ctx context.Context, args *InvocationArgs) (request str
 	})
 
 	logs.Infof("[MCP] Tool call succeeded: tool=%s, result_len=%d", toolName, len(resultStr))
+	logs.Infof("[MCP] Result: %s", resultStr)
 
 	// 6. Wrap response in JSON format
 	// Coze Studio expects all plugin responses to be JSON objects

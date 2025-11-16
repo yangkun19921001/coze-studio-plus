@@ -1376,6 +1376,7 @@ type StreamRunEventType string
 const (
 	DoneEvent      StreamRunEventType = "Done"
 	MessageEvent   StreamRunEventType = "Message"
+	ToolEvent      StreamRunEventType = "ToolCall"
 	ErrEvent       StreamRunEventType = "Error"
 	InterruptEvent StreamRunEventType = "Interrupt"
 )
@@ -1455,25 +1456,73 @@ func convertStreamRunEvent(workflowID int64) func(msg *entity.Message) (res *wor
 		}
 
 		if msg.DataMessage != nil {
-			if msg.Type != entity.Answer {
-				// stream run api do not emit FunctionCall or ToolResponse
-				return nil, schema.ErrNoValue
-			}
-
 			// stream run will skip all messages from workflow tools
 			if executeID > 0 && executeID != msg.DataMessage.ExecuteID {
 				return nil, schema.ErrNoValue
 			}
 
+			var content string
+			var contentType string
+			var eventType string
+			var toolInfo *workflow.ToolInfo
+			switch msg.Type {
+			case entity.Answer:
+				// Regular text answer from LLM
+				content = msg.Content
+				contentType = "text"
+				eventType = string(MessageEvent)
+			case entity.FunctionCall:
+				// Function call event - serialize to JSON
+				if msg.DataMessage.FunctionCall != nil {
+					toolInfo = &workflow.ToolInfo{
+						CallID:    msg.DataMessage.FunctionCall.CallID,
+						Name:      msg.DataMessage.FunctionCall.Name,
+						Arguments: msg.DataMessage.FunctionCall.Arguments,
+					}
+					eventType = string(ToolEvent)
+					contentType = "tool_start"
+				} else {
+					return nil, schema.ErrNoValue
+				}
+
+			case entity.ToolResponse:
+				// Tool response event - serialize to JSON
+				if msg.DataMessage.ToolResponse != nil {
+					toolInfo = &workflow.ToolInfo{
+						CallID:   msg.DataMessage.ToolResponse.CallID,
+						Name:     msg.DataMessage.ToolResponse.Name,
+						Response: msg.DataMessage.ToolResponse.Response,
+						Err:      msg.DataMessage.ToolResponse.Err,
+					}
+					eventType = string(ToolEvent)
+					contentType = "tool_end"
+				} else {
+					return nil, schema.ErrNoValue
+				}
+			default:
+				// Unknown message type, skip
+				return nil, schema.ErrNoValue
+			}
+
+			// Get node type display key with nil check
+			var nodeTypeDisplay string
+			if nodeMeta := entity.NodeMetaByNodeType(msg.NodeType); nodeMeta != nil {
+				nodeTypeDisplay = nodeMeta.GetDisplayKey()
+			} else {
+				// Fallback to string representation if NodeMeta not found
+				nodeTypeDisplay = string(msg.NodeType)
+			}
+
 			res = &workflow.OpenAPIStreamRunFlowResponse{
 				ID:           strconv.Itoa(messageID),
-				Event:        string(MessageEvent),
+				Event:        eventType,
 				NodeTitle:    ptr.Of(msg.NodeTitle),
-				Content:      ptr.Of(msg.Content),
-				ContentType:  ptr.Of("text"),
+				Content:      ptr.Of(content),
+				ContentType:  ptr.Of(contentType),
 				NodeIsFinish: ptr.Of(msg.Last),
-				NodeType:     ptr.Of(entity.NodeMetaByNodeType(msg.NodeType).GetDisplayKey()),
+				NodeType:     ptr.Of(nodeTypeDisplay),
 				NodeID:       ptr.Of(msg.NodeID),
+				ToolInfo:     toolInfo,
 			}
 
 			if msg.DataMessage.Usage != nil {

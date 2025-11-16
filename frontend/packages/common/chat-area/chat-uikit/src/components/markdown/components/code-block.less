@@ -1,0 +1,93 @@
+.coze-markdown-code-inline {
+  display: inline !important; // 强制 inline，避免换行
+
+  margin: 0 2px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  white-space: nowrap !important; // 强制不换行
+  word-break: normal; // 正常断词
+  
+  // 默认浅色主题配色（与 kaflow-web 一致）
+  background: rgba(0, 0, 0, 0.06) !important;
+  color: #d97706 !important; // 橙色
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  
+  // 兼容 CSS 变量（如果定义了主题变量）
+  background: var(--inline-code-bg, rgba(0, 0, 0, 0.06)) !important;
+  color: var(--inline-code-text, #d97706) !important;
+  border: 1px solid var(--border-secondary, rgba(0, 0, 0, 0.08)) !important;
+}
+
+// 深色主题配色（如果支持 data-theme 属性）
+[data-theme='dark'] .coze-markdown-code-inline {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #fbbf24 !important; // 黄色
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.coze-markdown-code-block {
+  position: relative;
+
+  overflow: hidden;
+
+  margin: 12px 0;
+
+  background-color: var(--semi-color-fill-0, #f6f8fa);
+  border-radius: 6px;
+}
+
+.coze-markdown-code-block-lang {
+  padding: 4px 10px;
+
+  font-family: Monaco, Menlo, 'Ubuntu Mono', Consolas, source-code-pro, monospace;
+  font-size: 14px;
+  font-weight: 700; // 加粗
+  color: #fbfbfb; // 蓝色文字
+  letter-spacing: 0.3px;
+
+  background: rgb(9, 9, 9); // 淡蓝色背景
+  border: 1px solid rgb(0, 0, 0); // 蓝色边框
+  border-radius: 0px;
+}
+
+.coze-markdown-code-block-pre {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 300px; // 最大高度，超出可滚动
+  margin: 0;
+  padding: 12px;
+  background-color: transparent;
+  
+  code {
+    display: block;
+
+    margin: 0;
+    padding: 0;
+
+    font-family: Monaco, Menlo, 'Ubuntu Mono', Consolas, source-code-pro, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--semi-color-text-0, #333);
+    white-space: pre; // 保持代码格式，不自动换行
+
+    background-color: transparent;
+    
+    // Basic syntax highlighting (provided by rehype-highlight)
+    .hljs-keyword { font-weight: 600; color: #d73a49; }
+    .hljs-string { color: #032f62; }
+    .hljs-comment { font-style: italic; color: #6a737d; }
+    .hljs-number { color: #005cc5; }
+    .hljs-function { color: #6f42c1; }
+    .hljs-title { font-weight: 600; color: #6f42c1; }
+    .hljs-params { color: #24292e; }
+    .hljs-built_in { color: #005cc5; }
+    .hljs-literal { color: #005cc5; }
+    .hljs-attr { color: #005cc5; }
+    .hljs-variable { color: #e36209; }
+  }
+}
+
+
+

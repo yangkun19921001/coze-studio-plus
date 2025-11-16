@@ -557,6 +557,7 @@ func handleEvent(ctx context.Context, event *Event, repo workflow.Repository,
 			return lastNodeDone, nil
 		}
 	case NodeStreamingOutput:
+		fmt.Println("NodeStreamingOutput", event)
 		if sw != nil && len(event.Answer) > 0 {
 			sw.Send(&entity.Message{
 				DataMessage: &entity.DataMessage{
@@ -640,31 +641,35 @@ func handleEvent(ctx context.Context, event *Event, repo workflow.Repository,
 		}
 	case FunctionCall:
 		cacheFunctionCall(ctx, event)
-		if sw == nil {
-			return noTerminate, nil
-		}
-		sw.Send(&entity.Message{
-			DataMessage: &entity.DataMessage{
-				ExecuteID:    event.RootExecuteID,
-				Role:         schema.Assistant,
-				Type:         entity.FunctionCall,
-				FunctionCall: event.functionCall.FunctionCallInfo,
-			},
-		}, nil)
+		// Note: FunctionCall events are now sent in real-time via llm.go Tool callbacks
+		// Skip sending here to avoid duplication
+		// if sw == nil {
+		// 	return noTerminate, nil
+		// }
+		// sw.Send(&entity.Message{
+		// 	DataMessage: &entity.DataMessage{
+		// 		ExecuteID:    event.RootExecuteID,
+		// 		Role:         schema.Assistant,
+		// 		Type:         entity.FunctionCall,
+		// 		FunctionCall: event.functionCall.FunctionCallInfo,
+		// 	},
+		// }, nil)
 	case ToolResponse:
 		cacheToolResponse(ctx, event)
-		if sw == nil {
-			return noTerminate, nil
-		}
-		sw.Send(&entity.Message{
-			DataMessage: &entity.DataMessage{
-				ExecuteID:    event.RootExecuteID,
-				Role:         schema.Tool,
-				Type:         entity.ToolResponse,
-				Last:         true,
-				ToolResponse: event.toolResponse,
-			},
-		}, nil)
+		// Note: ToolResponse events are now sent in real-time via llm.go Tool callbacks
+		// Skip sending here to avoid duplication
+		// if sw == nil {
+		// 	return noTerminate, nil
+		// }
+		// sw.Send(&entity.Message{
+		// 	DataMessage: &entity.DataMessage{
+		// 		ExecuteID:    event.RootExecuteID,
+		// 		Role:         schema.Tool,
+		// 		Type:         entity.ToolResponse,
+		// 		Last:         true,
+		// 		ToolResponse: event.toolResponse,
+		// 	},
+		// }, nil)
 	case ToolStreamingResponse:
 		cacheToolStreamingResponse(ctx, event)
 		if sw == nil {

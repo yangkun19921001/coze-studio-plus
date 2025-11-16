@@ -65,6 +65,7 @@ type WorkflowHandler struct {
 	resumeEvent        *entity.InterruptEvent
 	exeCfg             workflowModel.ExecuteConfig
 	rootTokenCollector *TokenCollector
+	streamWriter       *schema.StreamWriter[*entity.Message] // Stream writer for real-time output
 }
 
 type ToolHandler struct {
@@ -74,6 +75,7 @@ type ToolHandler struct {
 
 func NewRootWorkflowHandler(wb *entity.WorkflowBasic, executeID int64, requireCheckpoint bool,
 	ch chan<- *Event, resumedEvent *entity.InterruptEvent, exeCfg workflowModel.ExecuteConfig, nodeCount int32,
+	streamWriter *schema.StreamWriter[*entity.Message],
 ) callbacks.Handler {
 	return &WorkflowHandler{
 		ch:                ch,
@@ -83,6 +85,7 @@ func NewRootWorkflowHandler(wb *entity.WorkflowBasic, executeID int64, requireCh
 		resumeEvent:       resumedEvent,
 		exeCfg:            exeCfg,
 		nodeCount:         nodeCount,
+		streamWriter:      streamWriter,
 	}
 }
 

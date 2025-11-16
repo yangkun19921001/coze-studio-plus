@@ -16,7 +16,9 @@
 
 package vo
 
-import "github.com/cloudwego/eino/schema"
+import (
+	"github.com/cloudwego/eino/schema"
+)
 
 type ChatFlowEvent string
 
@@ -65,15 +67,16 @@ type ChatFlowDetail struct {
 }
 
 type MessageDetail struct {
-	ID             string `json:"id"`
-	ChatID         string `json:"chat_id"`
-	ConversationID string `json:"conversation_id"`
-	BotID          string `json:"bot_id"`
-	Role           string `json:"role"`
-	Type           string `json:"type"`
-	Content        string `json:"content"`
-	ContentType    string `json:"content_type"`
-	SectionID      string `json:"section_id"`
+	ID             string            `json:"id"`
+	ChatID         string            `json:"chat_id"`
+	ConversationID string            `json:"conversation_id"`
+	BotID          string            `json:"bot_id"`
+	Role           string            `json:"role"`
+	Type           string            `json:"type"`
+	Content        string            `json:"content"`
+	ContentType    string            `json:"content_type"`
+	SectionID      string            `json:"section_id"`
+	Extra          map[string]string `json:"extra,omitempty"`
 }
 
 type ErrorDetail struct {

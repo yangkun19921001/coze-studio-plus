@@ -1,0 +1,273 @@
+.coze-react-markdown {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--semi-color-text-0, #333);
+  word-wrap: break-word;
+  
+  // 内联代码不应该受 word-wrap 影响
+  code.coze-markdown-code-inline {
+    word-wrap: normal;
+    word-break: normal;
+  }
+  
+  // Headings
+  h1, h2, h3, h4, h5, h6 {
+    margin-top: 20px;
+    margin-bottom: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  
+  h1 { font-size: 28px; }
+  h2 { font-size: 24px; }
+  h3 { font-size: 20px; }
+  h4 { font-size: 18px; }
+  h5 { font-size: 16px; }
+  h6 { font-size: 14px; }
+  
+  // Paragraphs
+  p {
+    margin: 8px 0;
+  }
+  
+  // Lists
+  ul, ol {
+    margin: 8px 0;
+    padding-left: 24px;
+    
+    li {
+      margin: 4px 0;
+      line-height: 1.6;
+      word-wrap: break-word; // 列表项可以换行
+      
+      // 确保列表项中的内联代码不换行
+      code,
+      code.coze-markdown-code-inline {
+        display: inline !important;
+        white-space: nowrap !important;
+        word-wrap: normal !important;
+        word-break: normal !important;
+      }
+    }
+  }
+  
+  // Blockquotes
+  blockquote {
+    margin: 12px 0;
+    padding: 8px 16px;
+
+    color: var(--semi-color-text-1, #666);
+
+    background-color: var(--semi-color-fill-0, #f8f9fa);
+    border-left: 4px solid var(--semi-color-primary, #3370ff);
+    
+    p {
+      margin: 4px 0;
+    }
+  }
+  
+  // Horizontal rule
+  hr {
+    margin: 16px 0;
+    border: none;
+    border-top: 1px solid var(--semi-color-border, #ddd);
+  }
+  
+  // Links
+  a {
+    color: var(--semi-color-primary, #3370ff);
+    text-decoration: none;
+    
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+  
+  // Images
+  img {
+    max-width: 100%;
+    height: auto;
+    margin: 8px 0;
+  }
+  
+  // Tables (GFM)
+  table {
+    overflow: hidden;
+    border-collapse: collapse;
+
+    width: 100%;
+    margin: 12px 0;
+
+    font-size: 14px;
+    line-height: 1.6;
+
+    border: 1px solid var(--semi-color-border, #ddd);
+    border-radius: 4px;
+    
+    thead {
+      background-color: var(--semi-color-fill-0, #f8f9fa);
+    }
+    
+    th, td {
+      padding: 10px 14px;
+      text-align: left;
+      border: 1px solid var(--semi-color-border, #ddd);
+    }
+    
+    th {
+      font-weight: 600;
+      color: var(--semi-color-text-0, #333);
+    }
+    
+    td {
+      color: var(--semi-color-text-1, #666);
+    }
+    
+    tbody tr:hover {
+      background-color: rgba(0, 0, 0, 2%);
+    }
+  }
+  
+  // Strong/Bold
+  strong {
+    font-weight: 600;
+  }
+  
+  // Emphasis/Italic
+  em {
+    font-style: italic;
+  }
+  
+  // Strikethrough (GFM)
+  del {
+    text-decoration: line-through;
+  }
+  
+  // Task lists (GFM)
+  input[type="checkbox"] {
+    margin-right: 6px;
+  }
+  
+  // Inline code (only - block code handled by CodeWithLanguage component)
+  // 参考 kaflow-web 的实现，使用相同的配色方案
+  code.coze-markdown-code-inline {
+    display: inline;
+    margin: 0 2px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    white-space: nowrap; // 内联代码不换行
+    word-wrap: normal;
+    word-break: normal;
+    
+    // 默认浅色主题配色（与 kaflow-web 一致）
+    // 兼容 CSS 变量（如果定义了主题变量）
+    background: var(--inline-code-bg, rgba(0, 0, 0, 0.06));
+    color: var(--inline-code-text, #d97706);
+    border: 1px solid var(--border-secondary, rgba(0, 0, 0, 0.08));
+  }
+  
+  // 深色主题配色（如果支持 data-theme 属性）
+  [data-theme='dark'] & code.coze-markdown-code-inline {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fbbf24; // 黄色
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  // 兼容没有类名的内联代码
+  code:not(pre code):not(.coze-markdown-code-block code) {
+    display: inline;
+    white-space: nowrap;
+  }
+  
+  // Code block with language label
+  .coze-markdown-code-block {
+    position: relative;
+    margin: 12px 0;
+
+    .coze-markdown-code-language {
+      pointer-events: none;
+
+      position: absolute;
+      z-index: 1;
+      top: 8px;
+      left: 12px;
+
+      padding: 4px 10px;
+
+      font-size: 12px;
+      font-weight: 700; // 加粗
+      color: #3b82f6; // 蓝色文字
+      letter-spacing: 0.3px;
+
+      background: rgba(59, 130, 246, 0.12); // 淡蓝色背景
+      border: 1px solid rgba(59, 130, 246, 0.3); // 蓝色边框
+      border-radius: 4px;
+    }
+
+    pre {
+      overflow-x: auto;
+      overflow-y: auto;
+      max-height: 500px; // 最大高度，超出可滚动
+
+      margin: 0;
+      padding: 36px 16px 16px; // 给顶部留出空间显示语言标签
+
+      background-color: var(--semi-color-fill-0, #f4f4f4);
+      border-radius: 8px;
+
+      code {
+        margin: 0;
+        padding: 0;
+
+        font-size: 13px;
+        line-height: 1.5;
+        white-space: pre; // 保持代码格式，不自动换行
+
+        background-color: transparent;
+      }
+    }
+  }
+  
+  // Reset code styling inside pre (handled by component)
+  // 注意：内联代码不应该在 pre 标签内，所以这里只影响代码块
+  pre code {
+    margin: 0;
+    padding: 0;
+    background-color: transparent;
+    white-space: pre; // 代码块内的代码保持格式
+  }
+  
+  // 确保内联代码样式不被覆盖（提高优先级）
+  :not(pre) > code,
+  code:not(pre code) {
+    display: inline !important; // 强制内联，避免换行
+    white-space: nowrap !important; // 内联代码不换行
+  }
+  
+  // 特别处理列表项中的内联代码
+  li code,
+  p code {
+    display: inline !important;
+    white-space: nowrap !important;
+  }
+}
+
+.coze-react-markdown-streaming {
+  // Add subtle animation during streaming if needed
+  animation: coze-markdown-fade-in 0.3s ease-in;
+}
+
+@keyframes coze-markdown-fade-in {
+  from {
+    opacity: 0.8;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+
+

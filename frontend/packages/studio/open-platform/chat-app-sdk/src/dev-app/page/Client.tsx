@@ -29,19 +29,20 @@ export const TestClientDemo = () => {
   useEffect(() => {
     new WebChatClient({
       config: {
-        type: ChatType.BOT,
+        type: ChatType.APP, // ✨ 改为 APP 类型
         appInfo: {
           appId: process.env.CHAT_APP_CHATFLOW_COZE_APP_ID || '',
           workflowId: process.env.CHAT_APP_CHATFLOW_COZE_WORKFLOW_ID || '',
         },
 
-        botInfo: {
-          botId: process.env.CHAT_APP_INDEX_COZE_BOT_ID || '',
-          parameters: {
-            botId: process.env.CHAT_APP_INDEX_COZE_BOT_ID || '',
-            botName: '历史学教授',
-          },
-        },
+        // ✨ 注释掉 botInfo，因为工作流应用不需要
+        // botInfo: {
+        //   botId: process.env.CHAT_APP_INDEX_COZE_BOT_ID || '',
+        //   parameters: {
+        //     botId: process.env.CHAT_APP_INDEX_COZE_BOT_ID || '',
+        //     botName: '历史学教授',
+        //   },
+        // },
       },
 
       auth: {
@@ -50,7 +51,7 @@ export const TestClientDemo = () => {
         onRefreshToken: () => process.env.CHAT_APP_COZE_TOKEN || '',
       },
       componentProps: {
-        title: '历史学教授',
+        title: 'Coze 工作流', // ✨ 更新标题
         lang: Language.ZH_CN,
         layout: Layout.PC,
       },
@@ -64,7 +65,8 @@ export const TestClientDemo = () => {
           isNeed: true,
         },
         chatBot: {
-          title: '历史学教授33',
+          title: '小马克', // ✨ 更新标题
+          width: 800, // 配置聊天框宽度（单位：px），默认 460
           uploadable: true,
           isNeedAudio: true,
           isNeedFunctionCallMessage: true,
@@ -111,7 +113,7 @@ export const TestClientDemo = () => {
       userInfo: {
         id: '12334',
         url: process.env.CHAT_APP_COZE_BOT_USER_URL || '',
-        nickname: '3qweqweq4we',
+        nickname: 'DevYK',
       },
     });
   }, []);

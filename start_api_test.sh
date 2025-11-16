@@ -59,6 +59,12 @@ if [ $# -eq 2 ]; then
     exit 0
 fi
 
+# curl -s -X POST "http://localhost:8888/v1/workflow/stream_run/v1/workflow/run" \
+#     -H "Authorization: Bearer pat_9c5877dc08a472cdea1ac0429441833aec9d8fc92e06a8ef4aac542ac1d18c5e" \
+#     -H "Content-Type: application/json" \
+#     -d '{"workflow_id":"7569925483370905600","parameters":{"input":"帮我看下这台设备 55fc63b4e88da07c191b1642f86fe05d CPU多少核?"}}'
+
+
 clear
 echo "🧪 Coze Studio OpenAPI 测试工具"
 echo "==========================================="
@@ -100,9 +106,10 @@ show_menu() {
     echo "  0️⃣  列出所有工作流（必看！）"
     echo "  1️⃣  运行工作流（同步）"
     echo "  2️⃣  运行工作流（异步）"
-    echo "  3️⃣  获取工作流信息"
-    echo "  4️⃣  快速测试（简化版）"
-    echo "  5️⃣  查看使用说明"
+    echo "  3️⃣  运行工作流（流式响应）⭐ 新"
+    echo "  4️⃣  获取工作流信息"
+    echo "  5️⃣  快速测试（简化版）"
+    echo "  6️⃣  查看使用说明"
     echo "  9️⃣  退出"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -315,7 +322,110 @@ test_run_workflow_async() {
     echo ""
 }
 
-# 3. 查询执行结果
+# 3. 运行工作流（流式响应）
+test_run_workflow_stream() {
+    echo -e "${GREEN}▶️  运行工作流（流式响应 SSE）${NC}"
+    echo ""
+    
+    read -p "请输入 Workflow ID: " workflow_id
+    echo ""
+    echo "💡 参数输入方式："
+    echo "   1) 直接输入文本（推荐，自动作为 input）"
+    echo "   2) 输入完整 JSON（高级用户）"
+    echo ""
+    read -p "选择方式 [1/2，默认1]: " input_mode
+    input_mode=${input_mode:-1}
+    
+    echo ""
+    if [ "$input_mode" = "1" ]; then
+        read -p "请输入内容: " user_text
+        
+        # 使用 jq 构建 JSON（自动转义）
+        if command -v jq &> /dev/null; then
+            parameters=$(jq -n --arg text "$user_text" '{input: $text}')
+        else
+            user_text_escaped=$(echo "$user_text" | sed 's/"/\\"/g' | sed "s/'/\\'/g")
+            parameters="{\"input\":\"$user_text_escaped\"}"
+        fi
+    else
+        read -p "请输入 JSON 参数: " parameters
+        if [ -z "$parameters" ]; then
+            parameters="{}"
+        fi
+    fi
+    
+    echo ""
+    echo "🚀 开始流式执行..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    
+    # 构建请求
+    if command -v jq &> /dev/null; then
+        request_body=$(jq -n \
+            --arg wid "$workflow_id" \
+            --argjson params "$parameters" \
+            '{workflow_id: $wid, parameters: $params}')
+    else
+        request_body="{\"workflow_id\":\"$workflow_id\",\"parameters\":$parameters}"
+    fi
+    
+    # 使用 curl 的 -N 参数禁用缓冲，实时显示 SSE 流
+    # 使用 --no-buffer 确保立即输出
+    echo -e "${BLUE}📡 接收流式数据...${NC}"
+    echo ""
+    
+    # 临时文件存储原始 SSE 数据
+    temp_file=$(mktemp)
+    
+    curl -N -X POST "$BASE_URL/v1/workflow/stream_run" \
+        -H "Authorization: Bearer $API_KEY" \
+        -H "Content-Type: application/json" \
+        -H "Accept: text/event-stream" \
+        -d "$request_body" 2>/dev/null | while IFS= read -r line; do
+        
+        # 保存原始行
+        echo "$line" >> "$temp_file"
+        
+        # 解析 SSE 格式：event: xxx 和 data: xxx
+        if [[ $line == event:* ]]; then
+            event_type=$(echo "$line" | sed 's/^event: *//')
+            echo -e "${YELLOW}📌 事件: $event_type${NC}"
+        elif [[ $line == data:* ]]; then
+            data_content=$(echo "$line" | sed 's/^data: *//')
+            
+            # 尝试格式化 JSON
+            if command -v jq &> /dev/null && [ "$data_content" != "[DONE]" ]; then
+                echo "$data_content" | jq '.' 2>/dev/null || echo "$data_content"
+            else
+                echo "$data_content"
+            fi
+            echo ""
+        elif [ -z "$line" ]; then
+            # SSE 的空行分隔符
+            echo "---"
+        fi
+    done
+    
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${GREEN}✅ 流式响应完成${NC}"
+    echo ""
+    echo "💾 完整原始数据已保存到: $temp_file"
+    echo ""
+    read -p "是否查看完整原始 SSE 数据？[y/N] " view_raw
+    if [[ $view_raw =~ ^[Yy]$ ]]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "📄 完整 SSE 原始数据："
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        cat "$temp_file"
+        echo ""
+    fi
+    
+    echo ""
+}
+
+# 4. 查询执行结果
 check_execution_history() {
     local execute_id=$1
     
@@ -333,7 +443,7 @@ check_execution_history() {
     echo ""
 }
 
-# 4. 获取执行历史
+# 5. 获取执行历史
 test_execution_history() {
     echo -e "${BLUE}📊 获取执行历史${NC}"
     echo ""
@@ -359,7 +469,7 @@ test_execution_history() {
     echo ""
 }
 
-# 5. 快速测试（简化版）
+# 6. 快速测试（简化版）
 test_quick() {
     echo -e "${GREEN}⚡ 快速测试${NC}"
     echo ""
@@ -406,7 +516,7 @@ test_quick() {
     echo ""
 }
 
-# 6. 查看使用说明
+# 7. 查看使用说明
 show_help() {
     clear
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -419,14 +529,23 @@ show_help() {
     echo ""
     echo "📋 API 端点说明："
     echo ""
-    echo "   1. 运行工作流"
+    echo "   1. 运行工作流（同步）"
     echo "      POST /v1/workflow/run"
-    echo "      参数: workflow_id, parameters, is_async(可选)"
+    echo "      参数: workflow_id, parameters"
     echo ""
-    echo "   2. 查询执行结果"
+    echo "   2. 运行工作流（异步）"
+    echo "      POST /v1/workflow/run"
+    echo "      参数: workflow_id, parameters, is_async: true"
+    echo ""
+    echo "   3. 运行工作流（流式响应）⭐"
+    echo "      POST /v1/workflow/stream_run"
+    echo "      参数: workflow_id, parameters"
+    echo "      响应: Server-Sent Events (SSE) 流式数据"
+    echo ""
+    echo "   4. 查询执行结果"
     echo "      GET /v1/workflow/execute/{execute_id}"
     echo ""
-    echo "   3. 获取执行历史"
+    echo "   5. 获取执行历史"
     echo "      POST /v1/workflow/executions"
     echo "      参数: workflow_id(可选), page_num, page_size"
     echo ""
@@ -453,7 +572,7 @@ show_help() {
     echo "   {\"question\": \"什么是AI?\"}"
     echo "   {\"text\": \"要处理的文本\", \"max_length\": \"100\"}"
     echo ""
-    echo "📚 第三方调用示例（curl）："
+    echo "📚 第三方调用示例（curl - 同步）："
     echo ""
     echo "   curl -X POST $BASE_URL/v1/workflow/run \\"
     echo "     -H 'Authorization: Bearer YOUR_API_KEY' \\"
@@ -465,7 +584,22 @@ show_help() {
     echo "       }"
     echo "     }'"
     echo ""
-    echo "📱 第三方调用示例（Python）："
+    echo "📡 第三方调用示例（curl - 流式）："
+    echo ""
+    echo "   curl -N -X POST $BASE_URL/v1/workflow/stream_run \\"
+    echo "     -H 'Authorization: Bearer YOUR_API_KEY' \\"
+    echo "     -H 'Content-Type: application/json' \\"
+    echo "     -H 'Accept: text/event-stream' \\"
+    echo "     -d '{"
+    echo "       \"workflow_id\": \"123\","
+    echo "       \"parameters\": {"
+    echo "         \"input\": \"你好\""
+    echo "       }"
+    echo "     }'"
+    echo ""
+    echo "   注意：-N 参数禁用缓冲，实时显示流式数据"
+    echo ""
+    echo "📱 第三方调用示例（Python - 同步）："
     echo ""
     echo "   import requests"
     echo ""
@@ -482,6 +616,31 @@ show_help() {
     echo "   }"
     echo "   response = requests.post(url, headers=headers, json=data)"
     echo "   print(response.json())"
+    echo ""
+    echo "🐍 第三方调用示例（Python - 流式）："
+    echo ""
+    echo "   import requests"
+    echo "   import json"
+    echo ""
+    echo "   url = '$BASE_URL/v1/workflow/stream_run'"
+    echo "   headers = {"
+    echo "       'Authorization': 'Bearer YOUR_API_KEY',"
+    echo "       'Content-Type': 'application/json',"
+    echo "       'Accept': 'text/event-stream'"
+    echo "   }"
+    echo "   data = {"
+    echo "       'workflow_id': '123',"
+    echo "       'parameters': {'input': '你好'}"
+    echo "   }"
+    echo "   "
+    echo "   with requests.post(url, headers=headers, json=data, stream=True) as r:"
+    echo "       for line in r.iter_lines():"
+    echo "           if line:"
+    echo "               decoded_line = line.decode('utf-8')"
+    echo "               if decoded_line.startswith('data: '):"
+    echo "                   data = decoded_line[6:]  # 去掉 'data: ' 前缀"
+    echo "                   if data != '[DONE]':"
+    echo "                       print(json.loads(data))"
     echo ""
     echo "⚠️  注意："
     echo "   - parameters 是 JSON 对象，不是字符串"
@@ -508,13 +667,13 @@ while true; do
             test_run_workflow_async
             ;;
         3)
-            check_execution_history ""
+            test_run_workflow_stream
             ;;
         4)
-            test_execution_history
+            check_execution_history ""
             ;;
         5)
-            test_quick
+            test_execution_history
             ;;
         6)
             show_help

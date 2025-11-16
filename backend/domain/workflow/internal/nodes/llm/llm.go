@@ -383,9 +383,9 @@ func getReasoningContent(message *schema.Message) string {
 }
 
 func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2.BuildOption) (any, error) {
-	fmt.Println("----------------------------------------")
-	fmt.Println("🔧 LLM Node Build Started!")
-	fmt.Println("----------------------------------------")
+	logs.Infof("----------------------------------------")
+	logs.Infof("🔧 LLM Node Build Started!")
+	logs.Infof("----------------------------------------")
 
 	var (
 		err                   error
@@ -395,6 +395,7 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 		tools                 []tool.BaseTool
 		toolsReturnDirectly   map[string]bool
 		knowledgeRecallConfig *KnowledgeRecallConfig
+		llmRef                *LLM // Reference for callbacks to access realtimeWriter
 	)
 
 	chatModel, info, err = modelbuilder.BuildModelByID(ctx, c.LLMParams.ModelType, c.LLMParams.ToModelBuilderLLMParams())
@@ -420,20 +421,20 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 	}
 
 	fcParams := c.FCParam
-	fmt.Printf("🔧 fcParams == nil? %v\n", fcParams == nil)
+	logs.Infof("🔧 fcParams == nil? %v\n", fcParams == nil)
 	if fcParams != nil {
-		fmt.Println("🔧 fcParams is NOT nil")
+		logs.Infof("🔧 fcParams is NOT nil")
 
 		if fcParams.WorkflowFCParam != nil {
-			fmt.Printf("🔧 PluginFCParam has %d plugins\n",
+			logs.Infof("🔧 PluginFCParam has %d plugins\n",
 				len(fcParams.PluginFCParam.PluginList))
 
 			// 遍历插件列表
 			for i, p := range fcParams.PluginFCParam.PluginList {
-				fmt.Printf("  Plugin %d:\n", i+1)
-				fmt.Printf("    PluginID: %s\n", p.PluginID)
-				fmt.Printf("    ApiId: %s\n", p.ApiId)
-				fmt.Printf("    ApiName: %s\n", p.ApiName)
+				logs.Infof("  Plugin %d:\n", i+1)
+				logs.Infof("    PluginID: %s\n", p.PluginID)
+				logs.Infof("    ApiId: %s\n", p.ApiId)
+				logs.Infof("    ApiName: %s\n", p.ApiName)
 			}
 
 			for _, wf := range fcParams.WorkflowFCParam.WorkflowList {
@@ -475,7 +476,7 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 				}
 			}
 		} else {
-			fmt.Println("❌ PluginFCParam is nil!")
+			logs.Infof("❌ PluginFCParam is nil!")
 		}
 
 		if fcParams.PluginFCParam != nil {
@@ -585,7 +586,7 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 			knowledgeRecallConfig.SelectedKnowledgeDetails = detailResp.KnowledgeDetails
 		}
 	} else {
-		fmt.Println("❌ fcParams is nil!")
+		logs.Infof("❌ fcParams is nil!")
 	}
 
 	g := compose.NewGraph[map[string]any, map[string]any](
@@ -668,13 +669,13 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 	}
 
 	if len(tools) > 0 {
-		fmt.Println("----------------------------------------")
-		fmt.Printf("✅ Found %d tools, building React Agent\n", len(tools))
-		fmt.Println("----------------------------------------")
+		logs.Infof("----------------------------------------")
+		logs.Infof("✅ Found %d tools, building React Agent\n", len(tools))
+		logs.Infof("----------------------------------------")
 
 		for i, t := range tools {
 			info, _ := t.Info(ctx)
-			fmt.Printf("  Tool %d: %s\n", i+1, info.Name)
+			logs.Infof("  Tool %d: %s\n", i+1, info.Name)
 		}
 
 		m, ok := modelWithInfo.(model.ToolCallingChatModel)
@@ -686,6 +687,45 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 			ToolsConfig:      compose.ToolsNodeConfig{Tools: tools},
 			ModelNodeName:    agentModelName,
 			GraphName:        reactGraphName,
+			// Custom StreamToolCallChecker for models that output text before tool_calls (like DeepSeek, Claude)
+			StreamToolCallChecker: func(ctx context.Context, sr *schema.StreamReader[*schema.Message]) (bool, error) {
+				defer sr.Close()
+				hasToolCalls := false
+
+				// fmt.Println("🔍 [StreamToolCallChecker] Start checking for tool calls in stream")
+				chunkCount := 0
+
+				for {
+					msg, err := sr.Recv()
+					if err != nil {
+						if err == io.EOF {
+							// fmt.Printf("🔍 [StreamToolCallChecker] Stream ended. Total chunks: %d, hasToolCalls: %v\n", chunkCount, hasToolCalls)
+							break
+						}
+						// fmt.Printf("❌ [StreamToolCallChecker] Error reading stream: %v\n", err)
+						return false, err
+					}
+
+					chunkCount++
+
+					// Check if this chunk contains tool calls
+					if len(msg.ToolCalls) > 0 {
+						hasToolCalls = true
+						// fmt.Printf("✅ [StreamToolCallChecker] Found tool calls in chunk %d: %d tool(s)\n", chunkCount, len(msg.ToolCalls))
+					}
+
+					// Also log content for debugging
+					if len(msg.Content) > 0 {
+						contentPreview := msg.Content
+						if len(contentPreview) > 50 {
+							contentPreview = contentPreview[:50] + "..."
+						}
+						// fmt.Printf("📝 [StreamToolCallChecker] Chunk %d content: %s\n", chunkCount, contentPreview)
+					}
+				}
+
+				return hasToolCalls, nil
+			},
 		}
 
 		if len(toolsReturnDirectly) > 0 {
@@ -704,9 +744,9 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 		opts = append(opts, compose.WithNodeName(reactGraphName))
 		_ = g.AddGraphNode(llmNodeKey, agentNode, opts...)
 	} else {
-		fmt.Println("----------------------------------------")
-		fmt.Println("❌ No tools found, using plain ChatModel")
-		fmt.Println("----------------------------------------")
+		logs.Infof("----------------------------------------")
+		logs.Infof("❌ No tools found, using plain ChatModel")
+		logs.Infof("----------------------------------------")
 
 		_ = g.AddChatModelNode(llmNodeKey, modelWithInfo)
 	}
@@ -752,6 +792,12 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 
 			safego.Go(ctx, func() {
 				reasoningDone := false
+				defer func() {
+					if llmRef != nil && llmRef.realtimeWriter != nil {
+						llmRef.realtimeWriter = nil
+						logs.Infof("🧹 [tConvert] Cleared realtimeWriter reference as React Agent completed")
+					}
+				}()
 				for {
 					msg, err := s.Recv()
 					if err != nil {
@@ -814,15 +860,217 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 		return nil, err
 	}
 
-	llm := &LLM{
-		r:                  r,
-		outputFormat:       format,
-		requireCheckpoint:  requireCheckpoint,
-		fullSources:        ns.FullSources,
-		chatHistorySetting: c.ChatHistorySetting,
-		nodeKey:            ns.Key,
-		outputKey:          outputKey,
+	// Store callback handlers for later use in LLM.Stream/Invoke
+	var toolCallbackHandler callbacks.Handler
+	if len(tools) >= 0 {
+		toolCallbackHandler = callbacks2.NewHandlerHelper().
+			ChatModel(&callbacks2.ModelCallbackHandler{
+				OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *model.CallbackInput) context.Context {
+					logs.Infof("NewHandlerHelper ChatModel Start: node=%s type=%s component=%s",
+						info.Name, info.Type, info.Component)
+					return ctx
+				},
+				OnEndWithStreamOutput: func(ctx context.Context, info *callbacks.RunInfo, output *schema.StreamReader[*model.CallbackOutput]) context.Context {
+					// 🔍 显示回调来源（哪一层触发的）
+					logs.Infof("NewHandlerHelper ChatModel Stream: node=%s type=%s component=%s",
+						info.Name, info.Type, info.Component)
+
+					go func() {
+						defer output.Close()
+						allContent := []string{}
+
+						// Get execute context for node info
+						exeCtx := execute.GetExeCtx(ctx)
+
+						for {
+							frame, err := output.Recv()
+							if errors.Is(err, io.EOF) {
+								if len(allContent) > 0 {
+									logs.Infof("NewHandlerHelper ChatModel Stream EOF, total: %d chars", len(strings.Join(allContent, "")))
+								}
+								break
+							}
+							if err != nil {
+								logs.Errorf("NewHandlerHelper ChatModel Stream Error: %v", err)
+								return
+							}
+
+							if frame.Message.Content != "" {
+								allContent = append(allContent, frame.Message.Content)
+								logs.Infof("NewHandlerHelper ChatModel Stream Message: %s", frame.Message.Content)
+
+								// 🚀 Send realtime message to Workflow StreamContainer
+								if llmRef != nil && llmRef.realtimeWriter != nil && exeCtx != nil {
+									dataMsg := &entity.DataMessage{
+										Type:      entity.Answer,
+										Content:   frame.Message.Content,
+										Role:      schema.Assistant,
+										NodeType:  entity.NodeTypeLLM, // ✨ Critical: Must set NodeType!
+										ExecuteID: exeCtx.RootExecuteID,
+										NodeID:    string(exeCtx.NodeKey),
+										NodeTitle: exeCtx.NodeName,
+									}
+
+									msg := &entity.Message{
+										DataMessage: dataMsg,
+									}
+
+									llmRef.realtimeWriter.Send(msg, nil)
+								}
+							}
+
+						}
+					}()
+
+					return ctx
+				},
+				OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *model.CallbackOutput) context.Context {
+					logs.Infof("NewHandlerHelper ChatModel End: node=%s type=%s component=%s",
+						info.Name, info.Type, info.Component)
+					return ctx
+				},
+				OnError: func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
+					logs.Errorf("NewHandlerHelper ChatModel Error: node=%s type=%s component=%s error=%v", info.Name, info.Type, info.Component, err)
+					return ctx
+				},
+			}).
+			Tool(&callbacks2.ToolCallbackHandler{
+				OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *tool.CallbackInput) context.Context {
+					toolCallID := compose.GetToolCallID(ctx)
+					logs.Infof("NewHandlerHelper Tool Start: ID:%s, tool=%s type=%s component=%s arguments=%s",
+						toolCallID, info.Name, info.Type, info.Component, input.ArgumentsInJSON)
+
+					// 🚀 实时发送 Tool Start 事件
+					if llmRef != nil && llmRef.realtimeWriter != nil {
+						exeCtx := execute.GetExeCtx(ctx)
+						if exeCtx != nil {
+							// 解析 arguments
+							var args map[string]any
+							if err := sonic.UnmarshalString(input.ArgumentsInJSON, &args); err != nil {
+								logs.Warnf("Failed to unmarshal tool arguments: %v", err)
+								args = map[string]any{"raw": input.ArgumentsInJSON}
+							}
+
+							dataMsg := &entity.DataMessage{
+								Type:      entity.FunctionCall,
+								Role:      schema.Assistant,
+								NodeType:  entity.NodeTypeLLM,
+								ExecuteID: exeCtx.RootExecuteID,
+								NodeID:    string(exeCtx.NodeKey),
+								NodeTitle: exeCtx.NodeName,
+								FunctionCall: &entity.FunctionCallInfo{
+									FunctionInfo: entity.FunctionInfo{
+										Name: info.Name,
+										Type: entity.PluginTool, // 默认为插件工具
+									},
+									CallID:    toolCallID,
+									Arguments: args,
+								},
+							}
+
+							msg := &entity.Message{
+								DataMessage: dataMsg,
+							}
+
+							llmRef.realtimeWriter.Send(msg, nil)
+						}
+					}
+
+					return ctx
+				},
+				OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *tool.CallbackOutput) context.Context {
+					toolCallID := compose.GetToolCallID(ctx)
+					result := output.Response
+					logs.Infof("NewHandlerHelper Tool End: ID:%s, tool=%s type=%s component=%s result=%s",
+						toolCallID, info.Name, info.Type, info.Component, result)
+
+					// 🚀 实时发送 Tool End 事件
+					if llmRef != nil && llmRef.realtimeWriter != nil {
+						exeCtx := execute.GetExeCtx(ctx)
+						if exeCtx != nil {
+							dataMsg := &entity.DataMessage{
+								Type:      entity.ToolResponse,
+								Role:      schema.Tool,
+								NodeType:  entity.NodeTypeLLM,
+								ExecuteID: exeCtx.RootExecuteID,
+								NodeID:    string(exeCtx.NodeKey),
+								NodeTitle: exeCtx.NodeName,
+								ToolResponse: &entity.ToolResponseInfo{
+									FunctionInfo: entity.FunctionInfo{
+										Name: info.Name,
+										Type: entity.PluginTool,
+									},
+									CallID:   toolCallID,
+									Response: result,
+								},
+							}
+
+							msg := &entity.Message{
+								DataMessage: dataMsg,
+							}
+
+							llmRef.realtimeWriter.Send(msg, nil)
+
+						}
+					}
+
+					return ctx
+				},
+				OnError: func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
+					toolCallID := compose.GetToolCallID(ctx)
+					logs.Errorf("NewHandlerHelper Tool Error: ID:%s, tool=%s type=%s component=%s error=%v",
+						toolCallID, info.Name, info.Type, info.Component, err)
+
+					// 🚀 实时发送 Tool Error 事件（作为 ToolResponse，但包含错误信息）
+					if llmRef != nil && llmRef.realtimeWriter != nil {
+						exeCtx := execute.GetExeCtx(ctx)
+						if exeCtx != nil {
+							errorMsg := fmt.Sprintf("Tool execution failed: %v", err)
+
+							dataMsg := &entity.DataMessage{
+								Type:      entity.ToolResponse,
+								Role:      schema.Tool,
+								NodeType:  entity.NodeTypeLLM,
+								ExecuteID: exeCtx.RootExecuteID,
+								NodeID:    string(exeCtx.NodeKey),
+								NodeTitle: exeCtx.NodeName,
+								ToolResponse: &entity.ToolResponseInfo{
+									FunctionInfo: entity.FunctionInfo{
+										Name: info.Name,
+										Type: entity.PluginTool,
+									},
+									CallID:   toolCallID,
+									Response: errorMsg,
+									Err:      errorMsg,
+								},
+							}
+
+							msg := &entity.Message{
+								DataMessage: dataMsg,
+							}
+
+							llmRef.realtimeWriter.Send(msg, nil)
+						}
+					}
+
+					return ctx
+				},
+			}).
+			Handler()
 	}
+	llm := &LLM{
+		r:                   r,
+		outputFormat:        format,
+		requireCheckpoint:   requireCheckpoint,
+		fullSources:         ns.FullSources,
+		chatHistorySetting:  c.ChatHistorySetting,
+		nodeKey:             ns.Key,
+		outputKey:           outputKey,
+		toolCallbackHandler: toolCallbackHandler,
+	}
+
+	// Set the reference so callbacks can access realtimeWriter
+	llmRef = llm
 
 	return llm, nil
 }
@@ -907,13 +1155,15 @@ func toRetrievalSearchType(s int64) (knowledge.SearchType, error) {
 }
 
 type LLM struct {
-	r                  compose.Runnable[map[string]any, map[string]any]
-	outputFormat       Format
-	requireCheckpoint  bool
-	fullSources        map[string]*schema2.SourceInfo
-	chatHistorySetting *vo.ChatHistorySetting
-	nodeKey            vo.NodeKey
-	outputKey          string
+	r                   compose.Runnable[map[string]any, map[string]any]
+	outputFormat        Format
+	requireCheckpoint   bool
+	fullSources         map[string]*schema2.SourceInfo
+	chatHistorySetting  *vo.ChatHistorySetting
+	nodeKey             vo.NodeKey
+	outputKey           string
+	toolCallbackHandler callbacks.Handler                     // Tool callback handler for monitoring tool execution
+	realtimeWriter      *schema.StreamWriter[*entity.Message] // Real-time stream writer to bypass Graph node flow
 }
 
 const (
@@ -1183,6 +1433,11 @@ func (l *LLM) Invoke(ctx context.Context, in map[string]any, opts ...nodes.NodeO
 		return nil, err
 	}
 
+	// Add tool callback handler if available
+	if l.toolCallbackHandler != nil {
+		composeOpts = append(composeOpts, compose.WithCallbacks(l.toolCallbackHandler))
+	}
+
 	out, err = l.r.Invoke(ctx, in, composeOpts...)
 	if err != nil {
 		err = l.handleInterrupt(ctx, err, resumingEvent)
@@ -1198,12 +1453,37 @@ func (l *LLM) Stream(ctx context.Context, in map[string]any, opts ...nodes.NodeO
 		return nil, err
 	}
 
+	// Get execute context to access StreamWriter
+	exeCtx := execute.GetExeCtx(ctx)
+
+	// If we have StreamWriter in execute context, use it for real-time output
+	if exeCtx != nil && exeCtx.RootCtx.StreamWriter != nil {
+		l.realtimeWriter = exeCtx.RootCtx.StreamWriter
+		logs.Infof("✅ [LLM Stream] Found StreamWriter in execute context, will send messages directly")
+
+		defer func() {
+			// Clean up on error (but don't close the writer, it belongs to the workflow)
+			if err != nil && l.realtimeWriter != nil {
+				l.realtimeWriter = nil
+			}
+		}()
+	} else {
+		logs.Warnf("⚠️ [LLM Stream] No StreamWriter found in execute context")
+	}
+
+	// Add tool callback handler if available (callbacks will use realtimeWriter)
+	if l.toolCallbackHandler != nil {
+		composeOpts = append(composeOpts, compose.WithCallbacks(l.toolCallbackHandler))
+	}
+
 	out, err = l.r.Stream(ctx, in, composeOpts...)
 	if err != nil {
 		err = l.handleInterrupt(ctx, err, resumingEvent)
 		return nil, err
 	}
 
+	// Note: Don't close realtimeWriter here as it belongs to the workflow
+	// Just clear the reference in tConvert
 	return out, nil
 }
 
