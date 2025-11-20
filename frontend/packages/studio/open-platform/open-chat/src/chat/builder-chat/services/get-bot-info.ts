@@ -184,5 +184,16 @@ export const getBotInfo = async (
     appInfo.botInfo.url = ChatFlowUserIcon;
   }
 
+  // Debug: Log prologue for troubleshooting
+  console.log('[BuilderChat] getBotInfo result:', {
+    prologue: appInfo.prologue,
+    workflowData: workflowData
+      ? {
+          hasOnboardingInfo: !!workflowData.onboarding_info,
+          prologue: workflowData.onboarding_info?.prologue,
+        }
+      : null,
+  });
+
   return appInfo;
 };

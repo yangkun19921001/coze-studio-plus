@@ -207,9 +207,9 @@ services:
     privileged: true
     restart: always
     env_file: *env_file
-    # ports:
-    #   - '9000'
-    #   - '9001'
+    ports:
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
     volumes:
       - ./data/minio:/data
       - ./volumes/minio/default_icon/:/default_icon

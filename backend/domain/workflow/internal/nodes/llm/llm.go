@@ -687,6 +687,7 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 			ToolsConfig:      compose.ToolsNodeConfig{Tools: tools},
 			ModelNodeName:    agentModelName,
 			GraphName:        reactGraphName,
+			MaxStep:          40,
 			// Custom StreamToolCallChecker for models that output text before tool_calls (like DeepSeek, Claude)
 			StreamToolCallChecker: func(ctx context.Context, sr *schema.StreamReader[*schema.Message]) (bool, error) {
 				defer sr.Close()

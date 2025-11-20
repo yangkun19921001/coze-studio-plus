@@ -17,8 +17,13 @@
 
 
 # 🔑 API 配置
-API_KEY="pat_9c5877dc08a472cdea1ac0429441833aec9d8fc92e06a8ef4aac542ac1d18c5e"
-BASE_URL="http://localhost:8888"
+# API_KEY="pat_9c5877dc08a472cdea1ac0429441833aec9d8fc92e06a8ef4aac542ac1d18c5e"
+# BASE_URL="http://localhost:8888"
+# WORKFLOW_ID="7569925483370905600"
+
+API_KEY="pat_4be7a56bc8c6450b6e5d91e0534108cf2c13ca496423a04fd5f03052d0f306a9"
+BASE_URL="https://iaas-ops-agent.pyinfra.work"
+WORKFLOW_ID="7574700179186515968"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -30,7 +35,7 @@ NC='\033[0m' # No Color
 # 快速模式：通过命令行参数直接测试
 # 用法: ./start_api_test.sh <workflow_id> <text>
 if [ $# -eq 2 ]; then
-    workflow_id=$1
+    workflow_id=$WORKFLOW_ID
     user_text=$2
     
     echo "🚀 快速测试模式"
@@ -42,18 +47,24 @@ if [ $# -eq 2 ]; then
         request_body=$(jq -n \
             --arg wid "$workflow_id" \
             --arg text "$user_text" \
-            '{workflow_id: $wid, parameters: {input: $text}}')
+            '{workflow_id: $wid, parameters: {USER_INPUT: $text}}')
+        
+        echo "$request_body"
+
         
         curl -s -X POST "$BASE_URL/v1/workflow/run" \
             -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" \
             -d "$request_body" | jq '.'
+
     else
         user_text_escaped=$(echo "$user_text" | sed 's/"/\\"/g')
         curl -s -X POST "$BASE_URL/v1/workflow/run" \
             -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" \
-            -d '{"workflow_id":"'$workflow_id'","parameters":{"input":"'$user_text_escaped'"}}'
+            -d '{"workflow_id":"'$workflow_id'","parameters":{"USER_INPUT":"'$user_text_escaped'"}}'
+
+        echo '{"workflow_id":"'$workflow_id'","parameters":{"USER_INPUT":"'$user_text_escaped'"}}'
     fi
     
     exit 0
@@ -110,10 +121,11 @@ show_menu() {
     echo "  4️⃣  获取工作流信息"
     echo "  5️⃣  快速测试（简化版）"
     echo "  6️⃣  查看使用说明"
+    echo "  7️⃣  聊天模式（Chat API）🔥 推荐"
     echo "  9️⃣  退出"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    read -p "👉 请输入选项 [0-6,9]: " choice
+    read -p "👉 请输入选项 [0-7,9]: " choice
     echo ""
 }
 
@@ -516,7 +528,143 @@ test_quick() {
     echo ""
 }
 
-# 7. 查看使用说明
+# 7. 聊天模式（Chat API）
+test_chat_api() {
+    echo -e "${GREEN}💬 聊天模式（Chat API）${NC}"
+    echo ""
+    
+    read -p "请输入 Workflow ID: " workflow_id
+    
+    if [ -z "$workflow_id" ]; then
+        echo -e "${RED}❌ Workflow ID 不能为空${NC}"
+        return
+    fi
+    
+    read -p "请输入 App ID（必需）: " app_id
+    
+    if [ -z "$app_id" ]; then
+        echo -e "${RED}❌ App ID 不能为空${NC}"
+        return
+    fi
+    
+    read -p "请输入 Conversation ID（可选，直接回车自动创建）: " conversation_id
+    
+    echo ""
+    echo "🎯 进入聊天模式（输入 'exit' 或 'quit' 退出）"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    
+    while true; do
+        read -p "👤 你: " user_message
+        
+        if [ -z "$user_message" ]; then
+            continue
+        fi
+        
+        if [[ "$user_message" == "exit" ]] || [[ "$user_message" == "quit" ]]; then
+            echo -e "${YELLOW}👋 退出聊天模式${NC}"
+            break
+        fi
+        
+        echo ""
+        echo -e "${BLUE}🤖 AI:${NC} "
+        
+        # 构建 additional_messages JSON（根据真实 API 格式）
+        if command -v jq &> /dev/null; then
+            additional_messages=$(jq -n \
+                --arg content "$user_message" \
+                '[{role: "user", content_type: "text", content: $content}]')
+            
+            if [ -n "$conversation_id" ]; then
+                request_body=$(jq -n \
+                    --arg wid "$workflow_id" \
+                    --arg aid "$app_id" \
+                    --arg cid "$conversation_id" \
+                    --argjson msgs "$additional_messages" \
+                    '{
+                        workflow_id: $wid,
+                        app_id: $aid,
+                        conversation_id: $cid,
+                        connector_id: "10000010",
+                        execute_mode: "DEBUG",
+                        additional_messages: $msgs,
+                        ext: {
+                            _caller: "CANVAS"
+                        }
+                    }')
+            else
+                request_body=$(jq -n \
+                    --arg wid "$workflow_id" \
+                    --arg aid "$app_id" \
+                    --argjson msgs "$additional_messages" \
+                    '{
+                        workflow_id: $wid,
+                        app_id: $aid,
+                        connector_id: "10000010",
+                        execute_mode: "DEBUG",
+                        additional_messages: $msgs,
+                        ext: {
+                            _caller: "CANVAS"
+                        }
+                    }')
+            fi
+        else
+            # 简单转义（不完美但足够用）
+            user_message_escaped=$(echo "$user_message" | sed 's/"/\\"/g' | sed "s/'/\\'/g")
+            if [ -n "$conversation_id" ]; then
+                request_body="{\"additional_messages\":[{\"role\":\"user\",\"content_type\":\"text\",\"content\":\"$user_message_escaped\"}],\"connector_id\":\"10000010\",\"workflow_id\":\"$workflow_id\",\"execute_mode\":\"DEBUG\",\"app_id\":\"$app_id\",\"conversation_id\":\"$conversation_id\",\"ext\":{\"_caller\":\"CANVAS\"}}"
+            else
+                request_body="{\"additional_messages\":[{\"role\":\"user\",\"content_type\":\"text\",\"content\":\"$user_message_escaped\"}],\"connector_id\":\"10000010\",\"workflow_id\":\"$workflow_id\",\"execute_mode\":\"DEBUG\",\"app_id\":\"$app_id\",\"ext\":{\"_caller\":\"CANVAS\"}}"
+            fi
+        fi
+        
+        # 临时文件存储响应
+        temp_file=$(mktemp)
+        response_text=""
+        
+        # 发送请求并解析流式响应
+        curl -N -s -X POST "$BASE_URL/v1/workflows/chat" \
+            -H "Authorization: Bearer $API_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Accept: text/event-stream" \
+            -d "$request_body" 2>/dev/null | while IFS= read -r line; do
+            
+            # 保存原始行
+            echo "$line" >> "$temp_file"
+            
+            # 解析 SSE 格式
+            if [[ $line == data:* ]]; then
+                data_content=$(echo "$line" | sed 's/^data: *//')
+                
+                # 跳过空数据或 [DONE]
+                if [ -z "$data_content" ] || [ "$data_content" == "[DONE]" ]; then
+                    continue
+                fi
+                
+                # 尝试提取 content 字段（使用 jq）
+                if command -v jq &> /dev/null; then
+                    # 提取消息内容并打印（不换行）
+                    message_content=$(echo "$data_content" | jq -r '.message.content // empty' 2>/dev/null)
+                    if [ -n "$message_content" ]; then
+                        echo -n "$message_content"
+                    fi
+                else
+                    # 如果没有 jq，直接输出原始数据
+                    echo "$data_content"
+                fi
+            fi
+        done
+        
+        echo ""
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+    done
+    
+    echo ""
+}
+
+# 8. 查看使用说明
 show_help() {
     clear
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -542,7 +690,14 @@ show_help() {
     echo "      参数: workflow_id, parameters"
     echo "      响应: Server-Sent Events (SSE) 流式数据"
     echo ""
-    echo "   4. 查询执行结果"
+    echo "   4. 聊天模式（Chat API）🔥"
+    echo "      POST /v1/workflows/chat"
+    echo "      必需参数: workflow_id, app_id, additional_messages"
+    echo "      可选参数: conversation_id, connector_id, execute_mode, ext"
+    echo "      响应: Server-Sent Events (SSE) 流式对话"
+    echo "      特点: 支持多轮对话，保持上下文"
+    echo ""
+    echo "   5. 查询执行结果"
     echo "      GET /v1/workflow/execute/{execute_id}"
     echo ""
     echo "   5. 获取执行历史"
@@ -599,6 +754,36 @@ show_help() {
     echo ""
     echo "   注意：-N 参数禁用缓冲，实时显示流式数据"
     echo ""
+    echo "💬 第三方调用示例（curl - Chat API）："
+    echo ""
+    echo "   curl -N -X POST $BASE_URL/v1/workflows/chat \\"
+    echo "     -H 'Authorization: Bearer YOUR_API_KEY' \\"
+    echo "     -H 'Content-Type: application/json' \\"
+    echo "     -H 'Accept: text/event-stream' \\"
+    echo "     -d '{"
+    echo "       \"additional_messages\": ["
+    echo "         {"
+    echo "           \"role\": \"user\","
+    echo "           \"content_type\": \"text\","
+    echo "           \"content\": \"你好\""
+    echo "         }"
+    echo "       ],"
+    echo "       \"connector_id\": \"10000010\","
+    echo "       \"workflow_id\": \"123\","
+    echo "       \"execute_mode\": \"DEBUG\","
+    echo "       \"app_id\": \"456\","
+    echo "       \"conversation_id\": \"789\","
+    echo "       \"ext\": {"
+    echo "         \"_caller\": \"CANVAS\""
+    echo "       }"
+    echo "     }'"
+    echo ""
+    echo "   注意："
+    echo "   - app_id 是必需的"
+    echo "   - conversation_id 用于保持多轮对话上下文"
+    echo "   - connector_id 默认 10000010"
+    echo "   - execute_mode: DEBUG 或 留空"
+    echo ""
     echo "📱 第三方调用示例（Python - 同步）："
     echo ""
     echo "   import requests"
@@ -642,6 +827,39 @@ show_help() {
     echo "                   if data != '[DONE]':"
     echo "                       print(json.loads(data))"
     echo ""
+    echo "💬 第三方调用示例（Python - Chat API）："
+    echo ""
+    echo "   import requests"
+    echo "   import json"
+    echo ""
+    echo "   url = '$BASE_URL/v1/workflows/chat'"
+    echo "   headers = {"
+    echo "       'Authorization': 'Bearer YOUR_API_KEY',"
+    echo "       'Content-Type': 'application/json',"
+    echo "       'Accept': 'text/event-stream'"
+    echo "   }"
+    echo "   data = {"
+    echo "       'additional_messages': ["
+    echo "           {'role': 'user', 'content_type': 'text', 'content': '你好'}"
+    echo "       ],"
+    echo "       'connector_id': '10000010',"
+    echo "       'workflow_id': '123',"
+    echo "       'execute_mode': 'DEBUG',"
+    echo "       'app_id': '456',"
+    echo "       'conversation_id': '789',"
+    echo "       'ext': {'_caller': 'CANVAS'}"
+    echo "   }"
+    echo "   "
+    echo "   with requests.post(url, headers=headers, json=data, stream=True) as r:"
+    echo "       for line in r.iter_lines():"
+    echo "           if line:"
+    echo "               decoded_line = line.decode('utf-8')"
+    echo "               if decoded_line.startswith('data: '):"
+    echo "                   data = json.loads(decoded_line[6:])"
+    echo "                   # 提取消息内容"
+    echo "                   if 'message' in data and 'content' in data['message']:"
+    echo "                       print(data['message']['content'], end='')"
+    echo ""
     echo "⚠️  注意："
     echo "   - parameters 是 JSON 对象，不是字符串"
     echo "   - 参数名取决于你的工作流入口节点定义"
@@ -673,10 +891,13 @@ while true; do
             check_execution_history ""
             ;;
         5)
-            test_execution_history
+            test_quick
             ;;
         6)
             show_help
+            ;;
+        7)
+            test_chat_api
             ;;
         9)
             echo -e "${GREEN}👋 感谢使用！再见！${NC}"

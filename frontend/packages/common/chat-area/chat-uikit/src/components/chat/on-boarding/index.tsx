@@ -24,16 +24,16 @@ import {
 
 import classNames from 'classnames';
 import { useUpdateEffect } from 'ahooks';
-import { Avatar, Typography } from '@coze-arch/coze-design';
-import {
-  MdBoxLazy,
-  type MdBoxLazyProps,
-} from '@coze-arch/bot-md-box-adapter/lazy';
 import {
   Layout,
   type IMessage,
   type IEventCallbacks,
 } from '@coze-common/chat-uikit-shared';
+import { Avatar, Typography } from '@coze-arch/coze-design';
+import {
+  MdBoxLazy,
+  type MdBoxLazyProps,
+} from '@coze-arch/bot-md-box-adapter/lazy';
 
 import { CozeLink } from '../../md-box-slots/link';
 import {
@@ -178,11 +178,13 @@ export const OnBoarding = forwardRef<HTMLDivElement, OnBoardingProps>(
                     'leading-[20px]',
                     'rounded-normal',
                     'bg-[var(--coz-mg-primary)]',
+                    'coz-fg-primary',
                   ],
                   'chat-uikit-on-boarding__prologue',
                   prologueClassName,
                   {
-                    '!coz-bg-image-bots !coz-stroke-image-bots': showBackground,
+                    '!coz-bg-image-bots !coz-stroke-image-bots !coz-fg-white':
+                      showBackground,
                   },
                 )}
                 data-grab-mark={NO_MESSAGE_ID_MARK}

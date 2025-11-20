@@ -112,7 +112,9 @@ type complexServices struct {
 }
 
 func Init(ctx context.Context) (err error) {
+	// 1. 初始化上下文缓存
 	ctx = ctxcache.Init(ctx)
+	// 2. 初始化基础设施
 	infra, err := appinfra.Init(ctx)
 	if err != nil {
 		return err
@@ -121,23 +123,28 @@ func Init(ctx context.Context) (err error) {
 	progressbar.New = progressBarImpl.NewProgressBar
 	sqlparser.New = sqlparserImpl.NewSQLParser
 
+	// 3. 初始化事件总线(依赖基础设施)
 	eventbus := initEventBus(infra)
 
+	// 4. 初始化基础服务(依赖基础设施和事件总线)
 	basicServices, err := initBasicServices(ctx, infra, eventbus)
 	if err != nil {
 		return fmt.Errorf("Init - initBasicServices failed, err: %v", err)
 	}
 
+	// 5. 初始化主服务(依赖基础服务)
 	primaryServices, err := initPrimaryServices(ctx, basicServices)
 	if err != nil {
 		return fmt.Errorf("Init - initPrimaryServices failed, err: %v", err)
 	}
 
+	// 6. 初始化复杂服务(依赖主服务)
 	complexServices, err := initComplexServices(ctx, primaryServices)
 	if err != nil {
 		return fmt.Errorf("Init - initVitalServices failed, err: %v", err)
 	}
 
+	// 7. 配置跨域服务
 	crossconnector.SetDefaultSVC(connectorImpl.InitDomainService(basicServices.connectorSVC.DomainSVC))
 	crossdatabase.SetDefaultSVC(databaseImpl.InitDomainService(primaryServices.memorySVC.DatabaseDomainSVC))
 	crossknowledge.SetDefaultSVC(knowledgeImpl.InitDomainService(primaryServices.knowledgeSVC.DomainSVC))

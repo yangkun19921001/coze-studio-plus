@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { type MouseEvent, type FC, useRef } from 'react';
+import { type MouseEvent, type FC, type ComponentType, useRef } from 'react';
 
 import {
   type IOnImageClickParams,
@@ -35,6 +35,32 @@ import './index.less';
 // Feature flag: Use react-markdown instead of Calypso
 // Set to true to use the new react-markdown renderer
 const USE_REACT_MARKDOWN = true;
+
+const buildLinkExtra = (eventData: {
+  url?: string;
+  parsedUrl?: URL;
+  exts?: Record<string, unknown>;
+}) => {
+  const base =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'http://localhost';
+
+  let parsed = eventData.parsedUrl;
+  if (!parsed) {
+    try {
+      parsed = new URL(eventData.url ?? '', base);
+    } catch {
+      parsed = new URL(base);
+    }
+  }
+
+  return {
+    url: eventData.url ?? parsed.href,
+    parsedUrl: parsed,
+    exts: eventData.exts ?? {},
+  };
+};
 
 export type IMessageContentProps = IBaseContentProps & {
   onImageClick?: (params: IOnImageClickParams) => void;
@@ -67,6 +93,15 @@ export const TextContent: FC<IMessageContentProps> = props => {
   const isStreaming = !message.is_finish;
   const text = content.slice(0, message.broken_pos ?? Infinity);
 
+  const reactMarkdownMdBoxProps = mdBoxProps?.slots
+    ? {
+        slots: mdBoxProps.slots as unknown as Record<
+          string,
+          ComponentType<unknown>
+        >,
+      }
+    : undefined;
+
   // Use react-markdown if feature flag is enabled
   if (USE_REACT_MARKDOWN) {
     return (
@@ -93,7 +128,7 @@ export const TextContent: FC<IMessageContentProps> = props => {
               onLinkClick?.(
                 {
                   message,
-                  extra: { ...eventData },
+                  extra: buildLinkExtra(eventData),
                 },
                 e,
               );
@@ -104,7 +139,7 @@ export const TextContent: FC<IMessageContentProps> = props => {
               }
             },
           }}
-          mdBoxProps={mdBoxProps}
+          mdBoxProps={reactMarkdownMdBoxProps}
         >
           {text}
         </CozeReactMarkdown>

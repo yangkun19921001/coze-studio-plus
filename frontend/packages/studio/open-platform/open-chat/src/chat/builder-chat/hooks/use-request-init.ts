@@ -43,6 +43,14 @@ export const useRequestInit = (props: IBuilderChatProps) => {
 
       setAppDataFromOnLine?.(botInfo || null);
       const formatAPPInfo = combineAppDataWithProps(botInfo, refProps.current);
+
+      // Debug: Log openRequestInit result
+      console.log('[BuilderChat] openRequestInit result:', {
+        prologue: formatAPPInfo.prologue,
+        isBuilderChat: true,
+        botInfo: formatAPPInfo.botInfo,
+      });
+
       return {
         ...formatAPPInfo,
         ...conversationInfo,

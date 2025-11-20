@@ -32,6 +32,7 @@ import (
 //go:generate mockgen -destination ../../internal/mock/domain/workflow/interface.go --package mockWorkflow -source interface.go
 type Service interface {
 	ListNodeMeta(ctx context.Context, nodeTypes map[entity.NodeType]bool) (map[string][]*entity.NodeTypeMeta, []entity.Category, error)
+	//元数据管理
 	Create(ctx context.Context, meta *vo.MetaCreate) (int64, error)
 	Save(ctx context.Context, id int64, schema string) error
 	Get(ctx context.Context, policy *vo.GetPolicy) (*entity.Workflow, error)
@@ -49,7 +50,9 @@ type Service interface {
 
 	GetWorkflowVersionsByConnector(ctx context.Context, connectorID, workflowID int64, limit int) ([]string, error)
 
+	// 可执行工作流
 	Executable
+	// 作为工具
 	AsTool
 
 	ReleaseApplicationWorkflows(ctx context.Context, appID int64, config *vo.ReleaseWorkflowConfig) ([]*vo.ValidateIssue, error)
@@ -58,6 +61,7 @@ type Service interface {
 	GetWorkflowDependenceResource(ctx context.Context, workflowID int64) (*vo.DependenceResource, error)
 	SyncRelatedWorkflowResources(ctx context.Context, appID int64, relatedWorkflows map[int64]entity.IDVersionPair, related vo.ExternalResourceRelated) error
 
+	// 聊天流角色
 	ChatFlowRole
 	Conversation
 

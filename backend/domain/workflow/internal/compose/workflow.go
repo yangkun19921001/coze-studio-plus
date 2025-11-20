@@ -113,7 +113,7 @@ func NewWorkflow(ctx context.Context, sc *schema.WorkflowSchema, opts ...Workflo
 	// even if the terminate plan is use answer content, this still will be 'input types' of exit node
 	wf.output = sc.GetNode(entity.ExitNodeKey).InputTypes
 
-	// add all composite nodes with their inner workflow
+	// 添加所有复合节点（包含子工作流的节点）
 	compositeNodes := sc.GetCompositeNodes()
 	processedNodeKey := make(map[vo.NodeKey]struct{})
 	for i := range compositeNodes {
@@ -127,7 +127,7 @@ func NewWorkflow(ctx context.Context, sc *schema.WorkflowSchema, opts ...Workflo
 			processedNodeKey[child.Key] = struct{}{}
 		}
 	}
-	// add all nodes other than composite nodes and their children
+	// 添加所有普通节点
 	for _, ns := range sc.Nodes {
 		if _, ok := processedNodeKey[ns.Key]; !ok {
 			if err := wf.AddNode(ctx, ns); err != nil {
@@ -147,7 +147,15 @@ func NewWorkflow(ctx context.Context, sc *schema.WorkflowSchema, opts ...Workflo
 	if wfOpts.idAsName {
 		compileOpts = append(compileOpts, compose.WithGraphName(strconv.FormatInt(wfOpts.wfID, 10)))
 	}
-
+	// 设置更大的 max steps，避免复杂工作流（包含循环、重试等）超过限制
+	// 默认值：节点数 * 10（为循环和重试预留足够空间）
+	nodeCount := sc.NodeCount()
+	maxSteps := int(nodeCount) * 10
+	if maxSteps < 40 {
+		maxSteps = 40 // 最小保证 40 步
+	}
+	compileOpts = append(compileOpts, compose.WithMaxRunSteps(maxSteps))
+	// 编译成可执行的 Runner
 	r, err := wf.Compile(ctx, compileOpts...)
 	if err != nil {
 		return nil, err
@@ -407,6 +415,13 @@ func (w *Workflow) getInnerWorkflow(ctx context.Context, cNode *schema.Composite
 	if inner.requireCheckpoint {
 		opts = append(opts, compose.WithCheckPointStore(workflow2.GetRepository()))
 	}
+	// 设置子工作流的 max steps，避免复杂子工作流超过限制
+	innerNodeCount := len(innerNodes)
+	maxSteps := innerNodeCount * 10
+	if maxSteps < 40 {
+		maxSteps = 40 // 最小保证 40 步
+	}
+	opts = append(opts, compose.WithMaxRunSteps(maxSteps))
 
 	r, err := inner.Compile(ctx, opts...)
 	if err != nil {

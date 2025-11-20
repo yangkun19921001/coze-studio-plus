@@ -55,93 +55,115 @@ Coze Studio 是一个开源的 AI Agent 开发平台，提供从开发到部署�
 
 ```mermaid
 graph TB
-    subgraph "客户端层"
-        A[Web Frontend<br/>React + TS]
-        B[API/SDK Client]
+    subgraph L7["第7层：客户端层 Client Layer"]
+        direction LR
+        A["Web Frontend<br/>React + TypeScript<br/>Web前端界面"]
+        B["API/SDK Client<br/>API和SDK客户端<br/>第三方系统集成"]
     end
     
-    subgraph "接入层 API Layer"
-        C[Hertz HTTP Server<br/>:8888]
-        D[Middleware Stack<br/>Auth/Log/CORS]
-        E[Router<br/>API Routes]
+    subgraph L6["第6层：接入层 API Layer"]
+        direction LR
+        C["Hertz HTTP Server<br/>:8888<br/>HTTP服务器，接收请求"]
+        D["Middleware Stack<br/>Auth/Log/CORS<br/>中间件栈：认证/日志/跨域"]
+        E["Router<br/>API Routes<br/>路由分发，API路由注册"]
     end
     
-    subgraph "应用服务层 Application Layer"
-        F[Application Services]
-        F1[WorkflowApp]
-        F2[SingleAgentApp]
-        F3[PluginApp]
-        F4[KnowledgeApp]
-        F5[ConversationApp]
-        F --> F1
-        F --> F2
-        F --> F3
-        F --> F4
-        F --> F5
+    subgraph L5["第5层：应用服务层 Application Layer"]
+        direction LR
+        F1["WorkflowApp<br/>工作流应用服务<br/>编排工作流业务流程"]
+        F2["SingleAgentApp<br/>单智能体应用服务<br/>管理Agent创建和执行"]
+        F3["PluginApp<br/>插件应用服务<br/>管理插件生命周期"]
+        F4["KnowledgeApp<br/>知识库应用服务<br/>管理知识库CRUD"]
+        F5["ConversationApp<br/>对话应用服务<br/>管理对话会话"]
     end
     
-    subgraph "领域层 Domain Layer"
-        G[Domain Services]
-        G1[Workflow Domain]
-        G2[Agent Domain]
-        G3[Plugin Domain]
-        G4[Knowledge Domain]
-        G --> G1
-        G --> G2
-        G --> G3
-        G --> G4
+    subgraph L4["第4层：领域层 Domain Layer"]
+        direction LR
+        G1["Workflow Domain<br/>工作流领域服务<br/>核心工作流业务逻辑"]
+        G2["Agent Domain<br/>智能体领域服务<br/>Agent核心业务逻辑"]
+        G3["Plugin Domain<br/>插件领域服务<br/>插件核心业务逻辑"]
+        G4["Knowledge Domain<br/>知识库领域服务<br/>知识库核心逻辑"]
     end
     
-    subgraph "跨域服务层 Cross Domain"
-        H[Cross Domain Services]
-        H1[Workflow Cross]
-        H2[Message Cross]
-        H3[Database Cross]
-        H4[Plugin Cross]
-        H --> H1
-        H --> H2
-        H --> H3
-        H --> H4
+    subgraph L3["第3层：跨域服务层 Cross Domain Layer"]
+        direction LR
+        H1["Workflow Cross<br/>工作流跨域服务"]
+        H2["Message Cross<br/>消息跨域服务"]
+        H3["Database Cross<br/>数据库跨域服务"]
+        H4["Plugin Cross<br/>插件跨域服务"]
     end
     
-    subgraph "基础设施层 Infrastructure Layer"
-        I[Infrastructure]
-        I1[(MySQL<br/>数据持久化)]
-        I2[(Redis<br/>缓存/CheckPoint)]
-        I3[(Elasticsearch<br/>全文检索)]
-        I4[OSS<br/>对象存储]
-        I5[EventBus<br/>事件总线]
-        I6[CodeRunner<br/>代码执行]
-        I --> I1
-        I --> I2
-        I --> I3
-        I --> I4
-        I --> I5
-        I --> I6
+    subgraph L2["第2层：基础设施层 Infrastructure Layer"]
+        direction LR
+        I1[("MySQL<br/>关系型数据库")]
+        I2[("Redis<br/>内存数据库")]
+        I3[("Elasticsearch<br/>搜索引擎")]
+        I4["OSS<br/>对象存储"]
+        I5["EventBus<br/>事件总线"]
+        I6["CodeRunner<br/>代码执行器"]
     end
     
-    subgraph "外部服务"
-        J[LLM Providers<br/>OpenAI/Claude/...]
-        K[Embedding Service]
+    subgraph L1["第1层：外部服务层 External Services"]
+        direction LR
+        J["LLM Providers<br/>OpenAI/Claude/..."]
+        K["Embedding Service<br/>向量嵌入服务"]
     end
     
+    %% 客户端到接入层
     A --> C
     B --> C
+    
+    %% 接入层内部流转（顺序执行）
     C --> D
     D --> E
-    E --> F
-    F --> G
-    G --> H
-    H --> I
-    G --> J
-    G --> K
     
-    style A fill:#e1f5ff
-    style C fill:#fff4e1
-    style F fill:#e8f5e9
-    style G fill:#f3e5f5
-    style H fill:#fce4ec
-    style I fill:#fff9c4
+    %% 接入层到应用服务层（路由分发）
+    E --> F1
+    E --> F2
+    E --> F3
+    E --> F4
+    E --> F5
+    
+    %% 应用服务层到领域层（主要调用关系，对齐减少交叉）
+    F1 --> G1
+    F2 --> G2
+    F3 --> G3
+    F4 --> G4
+    F5 --> G1
+    F5 --> G2
+    
+    %% 领域层到跨域服务层（虚线表示间接调用）
+    G1 -.-> H1
+    G2 -.-> H2
+    G3 -.-> H4
+    G4 -.-> H3
+    
+    %% 跨域服务层到基础设施层
+    H1 --> I1
+    H2 --> I2
+    H3 --> I1
+    H4 --> I1
+    
+    %% 领域层直接访问基础设施（主要依赖，简化连接）
+    G1 --> I2
+    G1 --> I5
+    G4 --> I3
+    G3 --> I4
+    G3 --> I6
+    
+    %% 领域层到外部服务
+    G1 --> J
+    G2 --> J
+    G4 --> K
+    
+    %% 样式
+    style L7 fill:#e1f5ff
+    style L6 fill:#fff4e1
+    style L5 fill:#e8f5e9
+    style L4 fill:#f3e5f5
+    style L3 fill:#fce4ec
+    style L2 fill:#fff9c4
+    style L1 fill:#f5f5f5
 ```
 
 ### 2.2 架构特点分析
@@ -292,22 +314,28 @@ application/
 
 ```go
 func Init(ctx context.Context) error {
-    // 第一阶段：初始化基础设施
-    infra, _ := appinfra.Init(ctx)
+	// 1. 初始化上下文缓存
+	ctx = ctxcache.Init(ctx)
+	// 2. 初始化基础设施
+	infra, err := appinfra.Init(ctx)
     
-    // 第二阶段：初始化基础服务（只依赖 infra）
-    basicServices, _ := initBasicServices(ctx, infra, eventbus)
+	// 3. 初始化事件总线(依赖基础设施)
+	eventbus := initEventBus(infra)
+
+	// 4. 初始化基础服务(依赖基础设施和事件总线)
+	basicServices, err := initBasicServices(ctx, infra, eventbus)
     
-    // 第三阶段：初始化主要服务（依赖基础服务）
-    primaryServices, _ := initPrimaryServices(ctx, basicServices)
+	// 5. 初始化主服务(依赖基础服务)
+	primaryServices, err := initPrimaryServices(ctx, basicServices)
     
-    // 第四阶段：初始化复杂服务（依赖主要服务）
-    complexServices, _ := initComplexServices(ctx, primaryServices)
+	// 6. 初始化复杂服务(依赖主服务)
+	complexServices, err := initComplexServices(ctx, primaryServices)
     
-    // 第五阶段：注册跨域服务
-    crossworkflow.SetDefaultSVC(workflowImpl.InitDomainService(...))
-    crossknowledge.SetDefaultSVC(knowledgeImpl.InitDomainService(...))
-    // ...
+	// 7. 配置跨域服务
+	crossconnector.SetDefaultSVC(connectorImpl.InitDomainService(basicServices.connectorSVC.DomainSVC))
+	crossdatabase.SetDefaultSVC(databaseImpl.InitDomainService(primaryServices.memorySVC.DatabaseDomainSVC))
+
+	...
     
     return nil
 }
@@ -457,12 +485,14 @@ crossdomain/
 
 **使用模式**：
 
+> **注意**：以下代码为**伪代码示例**，用于说明跨域调用的概念模式。实际代码中的函数名和方法名可能不同。
+
 ```go
-// 在 Plugin Domain 中调用 Workflow
+// 伪代码示例：在 Plugin Domain 中调用 Workflow
 import crossworkflow "github.com/coze-dev/coze-studio/backend/crossdomain/workflow"
 
 func (s *PluginService) UseInWorkflow(ctx context.Context, wfID int64) error {
-    // 通过 crossdomain 接口调用
+    // 通过 crossdomain 接口调用（伪代码）
     wf, err := crossworkflow.GetDefaultSVC().GetWorkflow(ctx, wfID)
     if err != nil {
         return err
@@ -470,6 +500,29 @@ func (s *PluginService) UseInWorkflow(ctx context.Context, wfID int64) error {
     // ...
 }
 ```
+
+**真实代码示例**（来自 `backend/domain/agent/singleagent/internal/agentflow/node_tool_workflow.go`）：
+
+```go
+
+// 真实代码：在 Agent Domain 中调用 Workflow
+import crossworkflow "github.com/coze-dev/coze-studio/backend/crossdomain/workflow"
+
+// 获取 Workflow 作为工具使用
+func newWorkflowTools(ctx context.Context, conf *workflowConfig) ([]workflow.ToolFromWorkflow, map[string]struct{}, error) {
+	var policies []*vo.GetPolicy
+
+  ...
+
+	workflowTools, err := crossworkflow.DefaultSVC().WorkflowAsModelTool(ctx, policies)
+
+  ...
+	return workflowTools, toolsReturnDirectly, err
+}
+
+```
+
+
 
 #### 3.1.5 基础设施层（`/backend/infra`）
 
@@ -485,6 +538,104 @@ infra/
 ├── coderunner/       # 代码执行沙箱
 ├── checkpoint/       # 检查点存储
 └── ...
+```
+
+**核心职责**：
+- 🔸 封装技术实现细节（数据库、缓存、消息队列等）
+- 🔸 提供统一的接口抽象，不依赖具体实现
+- 🔸 实现依赖倒置，领域层只依赖接口
+
+**代码示例**：
+
+**1. Elasticsearch 使用示例**（来自 `backend/domain/search/service/search.go`）：
+
+```go
+// 领域服务通过依赖注入获取 ES 客户端
+func NewDomainService(ctx context.Context, e es.Client) Search {
+    return &searchImpl{
+        esClient: e,
+    }
+}
+
+// 使用 ES 进行全文检索
+func (s *searchImpl) SearchProjects(ctx context.Context, req *SearchRequest) error {
+    searchReq := &es.Request{
+        Query: &es.Query{
+            Bool: &es.BoolQuery{
+                Must: []es.Query{
+                    es.NewEqualQuery("space_id", strconv.FormatInt(req.SpaceID, 10)),
+                },
+            },
+        },
+    }
+    
+    result, err := s.esClient.Search(ctx, "project_index", searchReq)
+    if err != nil {
+        return err
+    }
+    // 处理搜索结果...
+    return nil
+}
+```
+
+**2. Storage（对象存储）使用示例**（来自 `backend/domain/plugin/service/exec_tool.go`）：
+
+```go
+type toolExecutor struct {
+    // 通过依赖注入获取存储服务
+    oss storage.Storage
+}
+
+// 上传文件到对象存储
+func (t *toolExecutor) uploadFile(ctx context.Context, content []byte, objectKey string) error {
+    return t.oss.PutObject(ctx, objectKey, content)
+}
+
+// 获取文件的预签名URL
+func (t *toolExecutor) getFileUrl(ctx context.Context, objectKey string) (string, error) {
+    return t.oss.GetObjectUrl(ctx, objectKey, storage.WithExpiration(time.Hour))
+}
+```
+
+**3. Cache（Redis）使用示例**（来自 `backend/domain/workflow/internal/nodes/llm/llm.go`）：
+
+```go
+// 使用上下文缓存（基于 Redis）
+import "github.com/coze-dev/coze-studio/backend/pkg/ctxcache"
+
+// 存储数据到缓存
+ctxcache.Store(ctx, "raw_output_key", outputData)
+ctxcache.Store(ctx, "chat_history_key", messages)
+
+// 从缓存读取数据
+rawOutput, found := ctxcache.Get[string](ctx, "raw_output_key")
+if found {
+    // 使用缓存的数据
+}
+```
+
+**4. EventBus（事件总线）接口定义**（来自 `backend/infra/eventbus/eventbus.go`）：
+
+```go
+// 事件生产者接口
+type Producer interface {
+    Send(ctx context.Context, body []byte, opts ...SendOpt) error
+    BatchSend(ctx context.Context, bodyArr [][]byte, opts ...SendOpt) error
+}
+
+// 事件消费者接口
+type ConsumerHandler interface {
+    HandleMessage(ctx context.Context, msg *Message) error
+}
+
+// 使用示例：发布事件
+producer.Send(ctx, eventData, eventbus.WithTopic("workflow_events"))
+
+// 使用示例：消费事件
+eventbus.GetDefaultSVC().RegisterConsumer(
+    "server", "workflow_events", "group1", 
+    &MyHandler{}, 
+)
 ```
 
 ---
@@ -675,21 +826,30 @@ graph TB
 
 **职责**：定义 Workflow 的结构和数据流
 
+> **真实代码**（来自 `backend/domain/workflow/internal/schema/workflow_schema.go`）：
+
 ```go
 // WorkflowSchema 定义 Workflow 的完整结构
 type WorkflowSchema struct {
-    Nodes       []*NodeSchema      // 所有节点
-    Connections []*Connection      // 节点连接关系
-    Hierarchy   map[NodeKey]NodeKey // 父子层级关系
+    Nodes       []*NodeSchema                `json:"nodes"`
+    Connections []*Connection                `json:"connections"`
+    Hierarchy   map[vo.NodeKey]vo.NodeKey    `json:"hierarchy,omitempty"` // child node key-> parent node key
+    Branches    map[vo.NodeKey]*BranchSchema `json:"branches,omitempty"`
+    
+    GeneratedNodes []vo.NodeKey `json:"generated_nodes,omitempty"` // generated nodes for the nodes in batch mode
+    
+    nodeMap           map[vo.NodeKey]*NodeSchema // won't serialize this
+    compositeNodes    []*CompositeNode           // won't serialize this
+    requireCheckPoint bool                       // won't serialize this
+    requireStreaming  bool
+    historyRounds     int64
 }
 
-// NodeSchema 定义单个节点
-type NodeSchema struct {
-    Key         NodeKey
-    Type        entity.NodeType    // Entry/Exit/LLM/Plugin...
-    InputTypes  map[string]*vo.TypeInfo
-    OutputTypes map[string]*vo.TypeInfo
-    Configs     interface{}        // 节点配置
+// Connection 定义节点之间的连接关系
+type Connection struct {
+    FromNode vo.NodeKey `json:"from_node"`
+    ToNode   vo.NodeKey `json:"to_node"`
+    FromPort *string    `json:"from_port,omitempty"`
 }
 ```
 
@@ -697,23 +857,52 @@ type NodeSchema struct {
 
 **职责**：将 Schema 编译成可执行的 Workflow
 
+> **真实代码**（来自 `backend/domain/workflow/internal/compose/workflow.go`）：
+
 ```go
 // NewWorkflow 创建 Workflow 实例
 func NewWorkflow(ctx context.Context, sc *schema.WorkflowSchema, opts ...WorkflowOption) (*Workflow, error) {
+    sc.Init() // 初始化 Schema，构建 nodeMap 等内部结构
+    
     wf := &Workflow{
-        workflow:    compose.NewWorkflow[map[string]any, map[string]any](),
+        workflow:    compose.NewWorkflow[map[string]any, map[string]any](
+            compose.WithGenLocalState(GenState()),
+        ),
         hierarchy:   sc.Hierarchy,
         connections: sc.Connections,
         schema:      sc,
     }
     
-    // 1. 添加所有节点
-    for _, ns := range sc.Nodes {
-        wf.AddNode(ctx, ns)
+    wf.streamRun = sc.RequireStreaming()
+    wf.requireCheckpoint = sc.RequireCheckpoint()
+    
+    // 处理选项
+    wfOpts := &workflowOptions{}
+    for _, opt := range opts {
+        opt(wfOpts)
     }
     
-    // 2. 编译成可执行的 Runner
-    runner, _ := wf.Compile(ctx, compose.WithCheckPointStore(...))
+    // 添加所有复合节点（包含子工作流的节点）
+    compositeNodes := sc.GetCompositeNodes()
+    for i := range compositeNodes {
+        cNode := compositeNodes[i]
+        if err := wf.AddCompositeNode(ctx, cNode); err != nil {
+            return nil, err
+        }
+    }
+    
+    // 添加所有普通节点
+    for _, ns := range sc.Nodes {
+        if err := wf.AddNode(ctx, ns); err != nil {
+            return nil, err
+        }
+    }
+    
+    // 编译成可执行的 Runner
+    runner, err := wf.Compile(ctx, wfOpts.compileOpts...)
+    if err != nil {
+        return nil, err
+    }
     wf.Runner = runner
     
     return wf, nil
@@ -737,29 +926,51 @@ func NewWorkflow(ctx context.Context, sc *schema.WorkflowSchema, opts ...Workflo
 | **Loop** | 循环迭代 | `nodes/loop` |
 | **HTTPRequester** | HTTP 请求 | `nodes/httprequester` |
 
-**LLM 节点示例**（简化）：
+**节点构建机制**（真实代码来自 `backend/domain/workflow/internal/compose/node_builder.go`）：
 
 ```go
-func buildLLMNode(ctx context.Context, ns *schema.NodeSchema) (*LLMNode, error) {
-    config := ns.Configs.(*LLMConfig)
+// New 从 NodeSchema 实例化实际的节点类型
+func New(ctx context.Context, s *schema.NodeSchema,
+    inner compose.Runnable[map[string]any, map[string]any], // 复合节点的内部工作流
+    sc *schema.WorkflowSchema, // 节点所在的工作流 Schema
+    deps *dependencyInfo, // 节点的依赖信息
+    requireCheckpoint bool,
+) (_ *Node, err error) {
+    // 如果 NodeSchema 的 Configs 实现了 NodeBuilder 接口，使用它来构建节点
+    nb, ok := s.Configs.(schema.NodeBuilder)
+    if ok {
+        opts := []schema.BuildOption{
+            schema.WithWorkflowSchema(sc),
+            schema.WithInnerWorkflow(inner),
+        }
+        
+        // 构建实际的 InvokableNode 等
+        n, err := nb.Build(ctx, s, opts...)
+        if err != nil {
+            return nil, err
+        }
+        
+        // 将 InvokableNode 包装成 NodeRunner，转换为 eino 的 Lambda
+        return toNode(s, n), nil
+    }
     
-    // 1. 构建 Chat Model
-    chatModel := modelbuilder.NewChatModel(config.Model)
-    
-    // 2. 构建 Prompt Template
-    promptTpl := prompt.FromMessages(config.Messages...)
-    
-    // 3. 创建 LLM Chain
-    chain := compose.NewChain[map[string]any, *schema.Message]()
-    chain.AppendPrompt(promptTpl)
-    chain.AppendChatModel(chatModel)
-    
-    return &LLMNode{
-        chain: chain,
-        config: config,
-    }, nil
+    // 处理特殊节点类型
+    switch s.Type {
+    case entity.NodeTypeLambda:
+        return &Node{Lambda: s.Lambda}, nil
+    case entity.NodeTypeSubWorkflow:
+        subWorkflow, err := buildSubWorkflow(ctx, s, requireCheckpoint)
+        if err != nil {
+            return nil, err
+        }
+        return toNode(s, subWorkflow), nil
+    default:
+        panic(fmt.Sprintf("node schema's Configs does not implement NodeBuilder. type: %v", s.Type))
+    }
 }
 ```
+
+**说明**：LLM 节点通过实现 `NodeBuilder` 接口来构建，具体实现在 `backend/domain/workflow/internal/nodes/llm/llm.go` 中。
 
 ##### Execute（执行引擎）
 
@@ -769,19 +980,33 @@ func buildLLMNode(ctx context.Context, ns *schema.NodeSchema) (*LLMNode, error) 
 - 🔸 流式输出支持
 - 🔸 中断和恢复
 
-**事件类型**：
+**事件类型**（真实代码来自 `backend/domain/workflow/internal/execute/event.go`）：
 
 ```go
+type EventType string
+
 const (
-    WorkflowStart     EventType = "workflow_start"
-    WorkflowSuccess   EventType = "workflow_success"
-    WorkflowFailed    EventType = "workflow_failed"
-    WorkflowInterrupt EventType = "workflow_interrupt"
-    WorkflowCancel    EventType = "workflow_cancel"
+    // 工作流级别事件
+    WorkflowStart         EventType = "workflow_start"
+    WorkflowSuccess       EventType = "workflow_success"
+    WorkflowFailed        EventType = "workflow_failed"
+    WorkflowCancel        EventType = "workflow_cancel"
+    WorkflowInterrupt     EventType = "workflow_interrupt"
+    WorkflowResume        EventType = "workflow_resume"
     
-    NodeStart    EventType = "node_start"
-    NodeSuccess  EventType = "node_success"
-    NodeFailed   EventType = "node_failed"
+    // 节点级别事件
+    NodeStart             EventType = "node_start"
+    NodeEnd               EventType = "node_end"
+    NodeEndStreaming      EventType = "node_end_streaming" // 绝对结束，所有流式内容发送完毕
+    NodeError             EventType = "node_error"
+    NodeStreamingInput    EventType = "node_streaming_input"
+    NodeStreamingOutput   EventType = "node_streaming_output"
+    
+    // 工具调用事件
+    FunctionCall          EventType = "function_call"
+    ToolResponse          EventType = "tool_response"
+    ToolStreamingResponse EventType = "tool_streaming_response"
+    ToolError             EventType = "tool_error"
 )
 ```
 
@@ -861,25 +1086,50 @@ graph TB
 
 #### 6.2.2 Plugin 调用流程
 
+> **真实代码**（来自 `backend/domain/workflow/internal/nodes/plugin/exec.go`）：
+
 ```go
-// Plugin 作为 Workflow Node 被调用
-func (n *PluginNode) Execute(ctx context.Context, input map[string]any) (map[string]any, error) {
-    // 1. 获取 Plugin 配置
-    pluginID := n.config.PluginID
-    methodName := n.config.MethodName
+// Plugin 节点执行（简化版，展示核心逻辑）
+func (n *PluginNode) execute(ctx context.Context, input map[string]any) (map[string]any, error) {
+    // 1. 准备执行请求
+    req := &model.ExecuteToolRequest{
+        PluginID:  pe.PluginID,
+        ToolID:    pe.ToolID,
+        Input:     input,
+        // ... 其他配置
+    }
     
-    // 2. 加载 Plugin
-    plugin, _ := crossplugin.GetDefaultSVC().GetPlugin(ctx, pluginID)
+    execOpts := []model.ExecuteToolOpt{
+        model.WithInvalidRespProcessStrategy(consts.InvalidResponseProcessStrategyOfReturnDefault),
+    }
     
-    // 3. 准备参数
-    params := n.prepareParams(input)
+    if pe.PluginVersion != nil {
+        execOpts = append(execOpts, model.WithToolVersion(*pe.PluginVersion))
+    }
     
-    // 4. 调用 Plugin
-    result, _ := plugin.Invoke(ctx, methodName, params)
+    // 2. 通过跨域服务调用 Plugin（注意：使用 DefaultSVC() 而不是 GetDefaultSVC()）
+    r, err := crossplugin.DefaultSVC().ExecuteTool(ctx, req, execOpts...)
+    if err != nil {
+        // 处理中断事件（如需要 OAuth 授权）
+        if extra, ok := compose.IsInterruptRerunError(err); ok {
+            pluginTIE, ok := extra.(*model.ToolInterruptEvent)
+            if ok {
+                // 创建工作流中断事件
+                // ...
+            }
+        }
+        return nil, err
+    }
     
-    return result, nil
+    // 3. 返回执行结果
+    return r.Output, nil
 }
 ```
+
+**关键点**：
+- 使用 `crossplugin.DefaultSVC()` 而不是 `crossplugin.GetDefaultSVC()`
+- 支持工具版本控制
+- 支持中断和恢复机制（如 OAuth 授权）
 
 ### 6.3 Knowledge 模块
 
@@ -963,59 +1213,59 @@ sequenceDiagram
 
 ```mermaid
 graph TB
-    subgraph "1. HTTP 请求"
-        A1["POST /v1/workflow/execute<br/>workflow_id: 123<br/>input: user_input=Hello"]
+    subgraph "1. HTTP 请求入口（真实代码：`backend/api/handler/coze/workflow_service.go`）"
+        A1["POST /v1/workflow/run<br/>workflow_id:123<br/>input:user_input=Hello<br/>外部调用入口"]
     end
     
-    subgraph "2. API Layer"
-        B1[WorkflowExecuteHandler]
-        B2[Parse Request Body]
-        B3[Validate Parameters]
+    subgraph "2. API 层（Hertz Handler）"
+        B1["WorkflowExecuteHandler<br/>OpenAPI入口处理器"]
+        B2["Parse Request Body<br/>解析请求体"]
+        B3["Validate Parameters<br/>参数校验"]
     end
     
-    subgraph "3. Application Layer"
-        C1[WorkflowApp.Execute]
-        C2[Build ExecuteConfig]
-        C3[Call Domain Service]
+    subgraph "3. 应用层（`application/workflow`）"
+        C1["WorkflowApp.Execute/OpenAPIRun<br/>应用服务编排"]
+        C2["Build ExecuteConfig<br/>构建执行配置"]
+        C3["Call Domain Service<br/>调用领域服务"]
     end
     
-    subgraph "4. Domain Layer - Preparation"
-        D1[WorkflowService.SyncExecute]
-        D2["Get Workflow Entity from DB<br/>workflow_meta + workflow_version"]
-        D3[Parse Canvas JSON to WorkflowSchema]
-        D4["WorkflowSchema<br/>Nodes: entry, llm_1, exit<br/>Connections: edges<br/>Type definitions"]
+    subgraph "4. 领域层预处理（`domain/workflow`）"
+        D1["WorkflowService.SyncExecute<br/>领域服务执行入口"]
+        D2["Get Workflow Entity<br/>查询workflow_meta + version"]
+        D3["Parse Canvas JSON<br/>转换为 WorkflowSchema"]
+        D4["WorkflowSchema<br/>节点: entry/llm/exit<br/>连接关系/类型定义"]
     end
     
-    subgraph "5. Compose Layer - Build"
-        E1[compose.NewWorkflow]
-        E2["AddNode: Entry<br/>outputs: user_input"]
-        E3["AddNode: LLM<br/>config: model, prompt template"]
-        E4["AddNode: Exit<br/>inputs: output"]
-        E5["Compile to Runner<br/>Eino Workflow Graph"]
+    subgraph "5. Compose 构建阶段（`domain/workflow/internal/compose`）"
+        E1["compose.NewWorkflow<br/>初始化可执行图"]
+        E2["AddNode: Entry<br/>输出 user_input"]
+        E3["AddNode: LLM<br/>模型+Prompt配置"]
+        E4["AddNode: Exit<br/>输入 output"]
+        E5["Compile to Runner<br/>编译为 Eino Runner"]
     end
     
-    subgraph "6. Execute Layer - Runtime"
-        F1["Runner.Invoke<br/>input: user_input=Hello"]
-        F2["Entry Node Execute<br/>emit: user_input=Hello"]
-        F3["LLM Node Execute<br/>1. Build Prompt<br/>2. Call ChatModel API<br/>3. Get Response"]
-        F4["Exit Node Execute<br/>collect output"]
-        F5[Return Final Output]
+    subgraph "6. Execute 运行阶段"
+        F1["Runner.Invoke<br/>输入user_input=Hello"]
+        F2["Entry Node Execute<br/>发射 user_input"]
+        F3["LLM Node Execute<br/>构建Prompt→调用LLM→拿到回复"]
+        F4["Exit Node Execute<br/>收集最终输出"]
+        F5["Return Final Output<br/>形成完整响应体"]
     end
     
-    subgraph "7. Event Emission"
-        G1[WorkflowStart Event]
+    subgraph "7. 事件发射（`domain/workflow/internal/execute`）"
+        G1["WorkflowStart Event<br/>工作流开始"]
         G2["NodeStart: entry"]
         G3["NodeSuccess: entry"]
         G4["NodeStart: llm_1"]
-        G5["NodeSuccess: llm_1<br/>+ Token Usage"]
+        G5["NodeSuccess: llm_1<br/>附带 token 使用"]
         G6["NodeStart: exit"]
         G7["NodeSuccess: exit"]
-        G8["WorkflowSuccess Event<br/>+ Total Duration<br/>+ Total Tokens"]
+        G8["WorkflowSuccess Event<br/>总耗时 / 总 token"]
     end
     
-    subgraph "8. Response"
-        H1["Build WorkflowExecution Entity<br/>status: success<br/>output data<br/>token_info"]
-        H2["Return HTTP Response<br/>code: 0, data"]
+    subgraph "8. HTTP 响应输出"
+        H1["Build WorkflowExecution Entity<br/>构建执行记录 + token info"]
+        H2["Return HTTP Response<br/>返回 code/data"]
     end
     
     A1 --> B1
@@ -1615,6 +1865,10 @@ graph TB
 
 #### Step 6: Runtime 执行
 
+> **代码路径备注**：
+> - `backend/domain/workflow/internal/compose/workflow.go` → `Workflow.SyncRun()` / `Workflow.Runner.Invoke()`
+> - `github.com/cloudwego/eino/compose/runnable.go` → `runner.Run()`（节点调度与回调触发）
+
 ```go
 // Eino Framework 内部执行流程
 func (r *Runner) Invoke(ctx context.Context, input map[string]any, opts ...Option) (map[string]any, error) {
@@ -1711,60 +1965,139 @@ sequenceDiagram
     EventChan->>Handler: lastEvent
 ```
 
-**事件处理代码**：
+**事件处理代码（真实代码摘录 + 注释）**：
 
 ```go
 // backend/domain/workflow/internal/execute/event_handle.go
-func buildEventHandler(eventChan chan *Event) callbacks.Handler {
-    return &EventHandler{
-        onStart: func(ctx context.Context, info *callbacks.RunInfo) {
-            if info.Type == "workflow" {
-                eventChan <- &Event{Type: WorkflowStart}
-            } else {
-                eventChan <- &Event{Type: NodeStart, NodeKey: info.Name}
-            }
-        },
-        onEnd: func(ctx context.Context, info *callbacks.RunInfo) {
-            if info.Type == "workflow" {
-                eventChan <- &Event{
-                    Type:         WorkflowSuccess,
-                    Duration:     info.Duration,
-                    InputTokens:  extractTokens(info, "input"),
-                    OutputTokens: extractTokens(info, "output"),
-                }
-            } else {
-                eventChan <- &Event{
-                    Type:    NodeSuccess,
-                    NodeKey: info.Name,
-                }
-            }
-        },
+func handleEvent(ctx context.Context, event *Event, repo workflow.Repository,
+    sw *schema.StreamWriter[*entity.Message]) (signal terminateSignal, err error) {
+    switch event.Type {
+    case WorkflowStart:
+        // ① WorkflowStart：创建/更新 workflow_execution，标记为 Running，
+        //    并将“正在运行”状态推送给前端（如果是流式执行）。
+    case NodeStart:
+        // ② NodeStart：写入 node_execution（包含输入、节点类型等），用于后续追踪。
+        nodeExec := &entity.NodeExecution{
+            ID:        event.NodeExecuteID,
+            ExecuteID: event.RootCtx.RootExecuteID,
+            NodeID:    string(event.NodeKey),
+            NodeName:  event.NodeName,
+            NodeType:  event.NodeType,
+            Status:    entity.NodeRunning,
+            Input:     ptr.Of(mustMarshalToString(event.Input)),
+        }
+        if err = repo.CreateNodeExecution(ctx, nodeExec); err != nil {
+            return noTerminate, fmt.Errorf("failed to create node execution: %v", err)
+        }
+    case NodeEnd, NodeEndStreaming:
+        // ③ NodeEnd：记录节点的执行结果、耗时、token 消耗、输出内容等。
+        nodeExec := &entity.NodeExecution{
+            ID:       event.NodeExecuteID,
+            Status:   entity.NodeSuccess,
+            Duration: event.Duration,
+            TokenInfo: &entity.TokenUsage{
+                InputTokens:  event.GetInputTokens(),
+                OutputTokens: event.GetOutputTokens(),
+            },
+            Extra: event.extra,
+        }
+        if event.outputStr != nil {
+            nodeExec.Output = event.outputStr
+        } else {
+            nodeExec.Output = ptr.Of(mustMarshalToString(event.Output))
+            nodeExec.RawOutput = event.RawOutput
+        }
+        if err = repo.UpdateNodeExecution(ctx, nodeExec); err != nil {
+            return noTerminate, fmt.Errorf("failed to save node execution: %v", err)
+        }
+        if event.NodeType == entity.NodeTypeExit && event.SubWorkflowCtx == nil {
+            // Exit 节点完成，标记“最后一个节点已结束”，等待 WorkflowSuccess 事件最终确认。
+            return lastNodeDone, nil
+        }
+    case WorkflowSuccess:
+        // ④ WorkflowSuccess：根工作流成功完成，等待 Exit 节点处理完后统一收尾。
+        return workflowSuccess, nil
+    case WorkflowFailed:
+        // ⑤ WorkflowFailed：更新 workflow_execution 状态为失败，并将错误信息写入 node_execution。
+    default:
+        panic("unimplemented event type: " + event.Type)
     }
+    return noTerminate, nil
+}
+
+func HandleExecuteEvent(ctx context.Context, wfExeID int64, eventChan <-chan *Event,
+    cancelFn, timeoutFn context.CancelFunc, repo workflow.Repository,
+    sw *schema.StreamWriter[*entity.Message], exeCfg workflowModel.ExecuteConfig) (event *Event) {
+    handler := func(event *Event) *Event {
+        signal, err := handleEvent(ctx, event, repo, sw)
+        if err != nil {
+            logs.CtxErrorf(ctx, "failed to handle event: %v", err)
+        }
+        switch signal {
+        case workflowSuccess:
+            // ⑥ WorkflowSuccess：如果 Exit 节点也已完成，就调用 setRootWorkflowSuccess
+            //    写入 workflow_execution（最终输出、token、耗时等）。
+            if lastNodeIsDone || exeCfg.Mode == workflowModel.ExecuteModeNodeDebug {
+                _ = setRootWorkflowSuccess(ctx, event, repo, sw)
+                return event
+            }
+        case lastNodeDone:
+            // ⑦ Exit 节点完成：若之前已经收到 workflowSuccess，就立即收尾；否则等待。
+            lastNodeIsDone = true
+            if wfSuccessEvent != nil {
+                _ = setRootWorkflowSuccess(ctx, wfSuccessEvent, repo, sw)
+                return wfSuccessEvent
+            }
+        case workflowAbort:
+            // ⑧ workflowAbort：出现取消/失败，直接返回最后一条事件。
+            return event
+        }
+        return nil
+    }
+    ...
 }
 ```
 
-#### Step 8: 返回结果
+#### Step 8: 返回结果（真实代码）
 
-```json
-{
-  "code": 0,
-  "msg": "success",
-  "data": {
-    "execution_id": "exec_xyz123",
-    "workflow_id": 123,
-    "status": "success",
-    "output": {
-      "output": "Hi there! How can I help you?"
-    },
-    "token_info": {
-      "input_tokens": 10,
-      "output_tokens": 8
-    },
-    "duration": 1250,
-    "created_at": "2025-11-06T10:30:00Z"
-  }
+> **代码位置**：`backend/application/workflow/workflow.go` → `ApplicationService.OpenAPIRun`
+
+```go
+// 异步执行：只返回 execute_id + debug_url
+if req.GetIsAsync() {
+    exeCfg.SyncPattern = workflowModel.SyncPatternAsync
+    exeCfg.TaskType = workflowModel.TaskTypeBackground
+    exeID, err := GetWorkflowDomainSVC().AsyncExecute(ctx, exeCfg, parameters)
+    if err != nil {
+        return nil, err
+    }
+    return &workflow.OpenAPIRunFlowResponse{
+        ExecuteID: ptr.Of(strconv.FormatInt(exeID, 10)),
+        DebugUrl:  ptr.Of(debugutil.GetWorkflowDebugURL(ctx, meta.ID, meta.SpaceID, exeID)),
+    }, nil
 }
+
+// 同步执行：返回执行结果 + token + debug_url
+exeCfg.SyncPattern = workflowModel.SyncPatternSync
+exeCfg.TaskType = workflowModel.TaskTypeForeground
+wfExe, tPlan, err := GetWorkflowDomainSVC().SyncExecute(ctx, exeCfg, parameters)
+...
+return &workflow.OpenAPIRunFlowResponse{
+    Data:      data,                                     // 输出内容（answer 或变量）
+    ExecuteID: ptr.Of(strconv.FormatInt(wfExe.ID, 10)),  // 执行 ID
+    DebugUrl:  ptr.Of(debugutil.GetWorkflowDebugURL(ctx, meta.ID, wfExe.SpaceID, wfExe.ID)),
+    Token:     ptr.Of(wfExe.TokenInfo.InputTokens + wfExe.TokenInfo.OutputTokens),
+    Cost:      ptr.Of("0.00000"),
+}, nil
 ```
+
+**字段含义**：
+- `ExecuteID`：这次执行的唯一 ID，便于查询历史或调试。
+- `Data`：工作流输出（当 terminate plan 是 `ReturnVariables` 时直接返回变量，否则封装成标准 answer 结构）。
+- `Token`：累计 token 消耗（输入 + 输出）。
+- `DebugUrl`：一键跳转调试页，便于复现。
+- `Cost`：预留的计费字段，目前固定 `0.00000`。
+- 异步场景不直接返回数据，只提供 `execute_id` + `debug_url`，由客户端轮询结果。
 
 ### 7.4 关键数据结构转换
 
