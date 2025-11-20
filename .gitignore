@@ -62,3 +62,10 @@ values-dev.yaml
 
 
 **debug_bin**
+
+build/
+build.sh
+
+deploy.sh
+
+docker/nginx/conf.d/default.conf

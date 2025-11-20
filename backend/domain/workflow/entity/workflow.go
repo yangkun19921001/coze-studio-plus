@@ -25,6 +25,7 @@ type ContentType = workflow.WorkFlowType
 type Tag = workflow.Tag
 type Mode = workflow.WorkflowMode
 
+// Workflow 工作流实体（聚合根）
 type Workflow struct {
 	ID       int64
 	CommitID string
@@ -35,6 +36,7 @@ type Workflow struct {
 	*vo.VersionMeta
 }
 
+// GetBasic 获取工作流基本信息
 func (w *Workflow) GetBasic() *WorkflowBasic {
 	var version string
 	if w.VersionMeta != nil {
@@ -49,6 +51,7 @@ func (w *Workflow) GetBasic() *WorkflowBasic {
 	}
 }
 
+// GetLatestVersion 获取最新版本
 func (w *Workflow) GetLatestVersion() string {
 	if w.LatestPublishedVersion == nil {
 		return ""
@@ -57,6 +60,7 @@ func (w *Workflow) GetLatestVersion() string {
 	return *w.LatestPublishedVersion
 }
 
+// GetVersion 获取版本
 func (w *Workflow) GetVersion() string {
 	if w.VersionMeta == nil {
 		return ""

@@ -21,7 +21,7 @@ import { SemiRspackPlugin } from '@douyinfe/semi-rspack-plugin';
 import PkgRootWebpackPlugin from '@coze-arch/pkg-root-webpack-plugin';
 
 import { PREFIX_CLASS } from './semi-css-var-postcss-plugin';
-import { cssLoaders, sideEffectsRules, swcTsLoader } from './rules';
+import { devCssLoaders, sideEffectsRules, swcTsLoader } from './rules';
 import { openSdkUnPkgDirName } from './env';
 import { IS_ANALYZE_MODE } from './base';
 import { getRspackAppDefineEnvs } from './app';
@@ -45,7 +45,7 @@ const config: Configuration = {
     ui: './src/export-ui/index.ts',
   },
   experiments: {
-    css: false,
+    css: true,
   },
   output: {
     path: openSdkUnPkgDirName,
@@ -72,6 +72,17 @@ const config: Configuration = {
     extensions: ['...', '.tsx', '.ts', '.jsx'],
   },
   module: {
+    parser: {
+      'css/auto': {
+        namedExports: false,
+      },
+    },
+    generator: {
+      'css/auto': {
+        exportsConvention: 'camel-case',
+        localIdentName: '[hash]-[local]',
+      },
+    },
     rules: [
       ...sideEffectsRules,
       {
@@ -106,17 +117,18 @@ const config: Configuration = {
       {
         test: /\.less$/,
         use: [
-          ...cssLoaders,
+          ...devCssLoaders,
           {
             loader: 'less-loader',
             options: {},
           },
         ],
+        type: 'css/auto',
       },
       {
         test: /\.scss$/,
         use: [
-          ...cssLoaders,
+          ...devCssLoaders,
           {
             loader: 'sass-loader',
             options: {
@@ -130,10 +142,11 @@ const config: Configuration = {
             },
           },
         ],
+        type: 'css/auto',
       },
       {
         test: /\.css$/,
-        use: cssLoaders,
+        use: devCssLoaders,
       },
       {
         test: /\.tsx?$/,

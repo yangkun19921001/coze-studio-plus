@@ -113,7 +113,7 @@ func NewWorkflow(ctx context.Context, sc *schema.WorkflowSchema, opts ...Workflo
 	// even if the terminate plan is use answer content, this still will be 'input types' of exit node
 	wf.output = sc.GetNode(entity.ExitNodeKey).InputTypes
 
-	// add all composite nodes with their inner workflow
+	// 添加所有复合节点（包含子工作流的节点）
 	compositeNodes := sc.GetCompositeNodes()
 	processedNodeKey := make(map[vo.NodeKey]struct{})
 	for i := range compositeNodes {
@@ -127,7 +127,7 @@ func NewWorkflow(ctx context.Context, sc *schema.WorkflowSchema, opts ...Workflo
 			processedNodeKey[child.Key] = struct{}{}
 		}
 	}
-	// add all nodes other than composite nodes and their children
+	// 添加所有普通节点
 	for _, ns := range sc.Nodes {
 		if _, ok := processedNodeKey[ns.Key]; !ok {
 			if err := wf.AddNode(ctx, ns); err != nil {
@@ -147,7 +147,7 @@ func NewWorkflow(ctx context.Context, sc *schema.WorkflowSchema, opts ...Workflo
 	if wfOpts.idAsName {
 		compileOpts = append(compileOpts, compose.WithGraphName(strconv.FormatInt(wfOpts.wfID, 10)))
 	}
-
+	// 编译成可执行的 Runner
 	r, err := wf.Compile(ctx, compileOpts...)
 	if err != nil {
 		return nil, err

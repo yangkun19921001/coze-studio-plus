@@ -37,6 +37,7 @@ func InitConfig(ctx context.Context) (err error) {
 
 	basePath := path.Join(cwd, "resources", "conf", "plugin")
 
+	logs.CtxInfof(ctx, "basePath=%s", basePath)
 	err = loadPluginProductMeta(ctx, basePath)
 	if err != nil {
 		return err

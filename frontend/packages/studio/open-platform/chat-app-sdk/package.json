@@ -38,7 +38,7 @@
     "bam": "bam update",
     "build": "IS_OPEN_SOURCE=true rm -rf dist_ignore inhouse libs && concurrently \"npm:build:*\"",
     "build:inhouse:boe": "CUSTOM_VERSION=inhouse BUILD_TYPE=offline REGION=cn npm run rsbuild",
-    "build:inhouse:cn": "CUSTOM_VERSION=inhouse BUILD_TYPE=online REGION=cn npm run rsbuild",
+    "build:inhouse:cn": "IS_OPEN_SOURCE=true CUSTOM_VERSION=inhouse BUILD_TYPE=online REGION=cn npm run rsbuild",
     "build:inhouse:sg": "CUSTOM_VERSION=inhouse BUILD_TYPE=online REGION=sg npm run rsbuild",
     "build:release:cn": "CUSTOM_VERSION=release BUILD_TYPE=online REGION=cn npm run rsbuild",
     "build:release:oversea": "CUSTOM_VERSION=release BUILD_TYPE=online REGION=sg npm run rsbuild",

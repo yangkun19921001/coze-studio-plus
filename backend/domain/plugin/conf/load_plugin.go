@@ -131,6 +131,7 @@ type ToolInfo struct {
 }
 
 func loadPluginProductMeta(ctx context.Context, basePath string) (err error) {
+	logs.CtxInfof(ctx, "basePath=%s", basePath)
 	root := path.Join(basePath, "pluginproduct")
 	metaFile := path.Join(root, "plugin_meta.yaml")
 
@@ -149,13 +150,15 @@ func loadPluginProductMeta(ctx context.Context, basePath string) (err error) {
 	toolProducts = map[int64]*ToolInfo{}
 
 	for _, m := range pluginsMeta {
+		logs.CtxInfof(ctx, "load plugin meta, openapi_doc_file=%s", m.OpenapiDocFile)
 		if !checkPluginMetaInfo(ctx, m) {
+			logs.CtxInfof(ctx, "checkPluginMetaInfo failed, openapi_doc_file=%s", m.OpenapiDocFile)
 			continue
 		}
 
 		err = m.Manifest.Validate(true)
 		if err != nil {
-			logs.CtxErrorf(ctx, "plugin manifest validates failed, err=%v", err)
+			logs.CtxErrorf(ctx, "plugin manifest validates failed, openapi_doc_file=%s, err=%v", m.OpenapiDocFile, err)
 			continue
 		}
 
@@ -163,7 +166,7 @@ func loadPluginProductMeta(ctx context.Context, basePath string) (err error) {
 		loader := openapi3.NewLoader()
 		_doc, err := loader.LoadFromFile(docPath)
 		if err != nil {
-			logs.CtxErrorf(ctx, "load file '%s', err=%v", docPath, err)
+			logs.CtxErrorf(ctx, "load openapi3 doc file '%s', err=%v", docPath, err)
 			continue
 		}
 
@@ -189,7 +192,7 @@ func loadPluginProductMeta(ctx context.Context, basePath string) (err error) {
 		}
 
 		if pluginProducts[m.PluginID] != nil {
-			logs.CtxErrorf(ctx, "duplicate plugin id '%d'", m.PluginID)
+			logs.CtxErrorf(ctx, "duplicate plugin id '%d', openapi_doc_file=%s", m.PluginID, m.OpenapiDocFile)
 			continue
 		}
 
@@ -213,7 +216,7 @@ func loadPluginProductMeta(ctx context.Context, basePath string) (err error) {
 
 			_, ok := toolProducts[t.ToolID]
 			if ok {
-				logs.CtxErrorf(ctx, "duplicate tool id '%d'", t.ToolID)
+				logs.CtxErrorf(ctx, "duplicate tool id '%d', openapi_doc_file=%s", t.ToolID, m.OpenapiDocFile)
 				continue
 			}
 
@@ -223,12 +226,12 @@ func loadPluginProductMeta(ctx context.Context, basePath string) (err error) {
 			}
 			op, ok := apis[api]
 			if !ok {
-				logs.CtxErrorf(ctx, "api '[%s]:%s' not found in doc '%s'", api.Method, api.SubURL, docPath)
+				logs.CtxErrorf(ctx, "api '[%s]:%s' not found in doc '%s', openapi_doc_file=%s", api.Method, api.SubURL, docPath, m.OpenapiDocFile)
 				continue
 			}
 			if err = op.Validate(ctx); err != nil {
-				logs.CtxErrorf(ctx, "the openapi3 operation of tool '[%s]:%s' in '%s' validates failed, err=%v",
-					t.Method, t.SubURL, m.OpenapiDocFile, err)
+				logs.CtxErrorf(ctx, "the openapi3 operation of tool '[%s]:%s' in '%s' validates failed, openapi_doc_file=%s, err=%v",
+					t.Method, t.SubURL, docPath, m.OpenapiDocFile, err)
 				continue
 			}
 

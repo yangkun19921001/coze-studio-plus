@@ -45,16 +45,19 @@ func main() {
 	// Please do not change the order of the function calls below
 	setCrashOutput()
 
+	// 1. 加载环境变量
 	if err := loadEnv(); err != nil {
 		panic("loadEnv failed, err=" + err.Error())
 	}
 
 	setLogLevel()
 
+	// 2. 初始化所有服务（依赖注入）
 	if err := application.Init(ctx); err != nil {
 		panic("InitializeInfra failed, err=" + err.Error())
 	}
 
+	// 3. 启动 HTTP 服务器
 	startHttpServer()
 }
 
