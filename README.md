@@ -75,6 +75,28 @@ Deployment steps:
 * **Project Configuration**:
    * [Model Configuration](https://github.com/coze-dev/coze-studio/wiki/3.-Model-configuration): Before deploying the open-source version of Coze Studio, you must configure the model service. Otherwise, you cannot select models when building agents, workflows, and apps.
    * [Plugin Configuration](https://github.com/coze-dev/coze-studio/wiki/4.-Plugin-Configuration): To use official plugins from the plugin store, you must first configure the plugins and add the authentication keys for third-party services.
+     * **MCP Plugin Configuration**: Coze Studio supports plugins based on Model Context Protocol (MCP). Add MCP plugin configuration in `backend/conf/plugin/pluginproduct/plugin_meta.yaml`:
+       ```yaml
+       - plugin_id: 101
+         version: v1.0.0
+         plugin_type: 1
+         manifest:
+           api:
+             type: coze-studio-mcp  # Specify MCP plugin type
+             extensions:
+               mcp_config:
+                 transport_type: sse  # or stdio
+                 sse_config:          # SSE transport configuration
+                   url: http://your-mcp-server:8000/mcp/sse
+                   headers:
+                     Content-Type: application/json
+                 # stdio_config:      # stdio transport configuration
+                 #   command: ["node", "/path/to/mcp-server.js"]
+                 #   env:
+                 #     NODE_ENV: production
+         # tools list is optional: MCP tools are automatically loaded from server
+       ```
+       MCP plugins automatically fetch available tools from the server during loading, so manual `tools` configuration is not required.
    * [Basic Component Configuration](https://github.com/coze-dev/coze-studio/wiki/5.-Basic-component-configuration): Learn how to configure components such as image uploaders to use functions like image uploading in Coze Studio .
 * [API Reference](https://github.com/coze-dev/coze-studio/wiki/6.-API-Reference): The Coze Studio Community Edition API and Chat SDK are authenticated using Personal Access Token, providing APIs for conversations and workflows.
 * [Development Guidelines](https://github.com/coze-dev/coze-studio/wiki/7.-Development-Standards):
