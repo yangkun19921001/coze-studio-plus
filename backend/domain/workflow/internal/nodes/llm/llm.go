@@ -682,12 +682,13 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 		if !ok {
 			return nil, errors.New("requires a ToolCallingChatModel to use with tools")
 		}
+
 		reactConfig := react.AgentConfig{
 			ToolCallingModel: m,
 			ToolsConfig:      compose.ToolsNodeConfig{Tools: tools},
 			ModelNodeName:    agentModelName,
 			GraphName:        reactGraphName,
-			MaxStep:          40,
+			MaxStep:          100,
 			// Custom StreamToolCallChecker for models that output text before tool_calls (like DeepSeek, Claude)
 			StreamToolCallChecker: func(ctx context.Context, sr *schema.StreamReader[*schema.Message]) (bool, error) {
 				defer sr.Close()

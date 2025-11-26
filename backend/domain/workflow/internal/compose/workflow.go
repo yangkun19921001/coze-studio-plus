@@ -148,14 +148,8 @@ func NewWorkflow(ctx context.Context, sc *schema.WorkflowSchema, opts ...Workflo
 	if wfOpts.idAsName {
 		compileOpts = append(compileOpts, compose.WithGraphName(strconv.FormatInt(wfOpts.wfID, 10)))
 	}
-	// 设置更大的 max steps，避免复杂工作流（包含循环、重试等）超过限制
-	// 默认值：节点数 * 10（为循环和重试预留足够空间）
-	nodeCount := sc.NodeCount()
-	maxSteps := int(nodeCount) * 10
-	if maxSteps < 40 {
-		maxSteps = 40 // 最小保证 40 步
-	}
-	compileOpts = append(compileOpts, compose.WithMaxRunSteps(maxSteps))
+	// Note: DAG mode (workflow) doesn't support max run steps setting
+	// Max run steps is only applicable to Pregel mode (chain)
 	// 编译成可执行的 Runner
 	r, err := wf.Compile(ctx, compileOpts...)
 	if err != nil {
@@ -416,13 +410,8 @@ func (w *Workflow) getInnerWorkflow(ctx context.Context, cNode *schema.Composite
 	if inner.requireCheckpoint {
 		opts = append(opts, compose.WithCheckPointStore(workflow2.GetRepository()))
 	}
-	// 设置子工作流的 max steps，避免复杂子工作流超过限制
-	innerNodeCount := len(innerNodes)
-	maxSteps := innerNodeCount * 10
-	if maxSteps < 40 {
-		maxSteps = 40 // 最小保证 40 步
-	}
-	opts = append(opts, compose.WithMaxRunSteps(maxSteps))
+	// Note: DAG mode (workflow) doesn't support max run steps setting
+	// Max run steps is only applicable to Pregel mode (chain)
 
 	r, err := inner.Compile(ctx, opts...)
 	if err != nil {

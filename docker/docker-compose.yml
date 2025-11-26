@@ -426,7 +426,7 @@ services:
       # - "443:443"  # SSL port (uncomment if using SSL)
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro  # Main nginx config
-      - ./nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro  # Proxy config
+      - ./nginx/conf.d/docker.conf:/etc/nginx/conf.d/default.conf:ro  # Docker container proxy config (listen 80)
       # - ./nginx/ssl:/etc/nginx/ssl:ro  # SSL certificates (uncomment if using SSL)
     depends_on:
       - coze-server

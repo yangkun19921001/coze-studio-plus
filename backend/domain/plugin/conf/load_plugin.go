@@ -28,6 +28,8 @@ import (
 	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v3"
 
+	"encoding/json"
+
 	common "github.com/coze-dev/coze-studio/backend/api/model/plugin_develop/common"
 	"github.com/coze-dev/coze-studio/backend/crossdomain/plugin/consts"
 	"github.com/coze-dev/coze-studio/backend/crossdomain/plugin/model"
@@ -35,6 +37,7 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/plugin/entity"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/ptr"
 	"github.com/coze-dev/coze-studio/backend/pkg/logs"
+	"github.com/coze-dev/coze-studio/backend/pkg/mcp"
 )
 
 type pluginProductMeta struct {
@@ -162,92 +165,172 @@ func loadPluginProductMeta(ctx context.Context, basePath string) (err error) {
 			continue
 		}
 
-		docPath := path.Join(root, m.OpenapiDocFile)
-		loader := openapi3.NewLoader()
-		_doc, err := loader.LoadFromFile(docPath)
-		if err != nil {
-			logs.CtxErrorf(ctx, "load openapi3 doc file '%s', err=%v", docPath, err)
-			continue
-		}
+		// Check if this is an MCP plugin
+		isMCPPlugin := m.Manifest.API.Type == consts.PluginTypeOfMCP
 
-		doc := ptr.Of(model.Openapi3T(*_doc))
+		var doc *model.Openapi3T
+		var pi *PluginInfo
 
-		err = doc.Validate(ctx)
-		if err != nil {
-			logs.CtxErrorf(ctx, "the openapi3 doc '%s' validates failed, err=%v", m.OpenapiDocFile, err)
-			continue
-		}
+		if isMCPPlugin {
+			// For MCP plugins, load tools from MCP server
+			logs.CtxInfof(ctx, "[MCP] Loading MCP plugin: plugin_id=%d", m.PluginID)
 
-		pi := &PluginInfo{
-			Info: &model.PluginInfo{
-				ID:         m.PluginID,
-				PluginType: m.PluginType,
-				Version:    ptr.Of(m.Version),
-				IconURI:    ptr.Of(m.Manifest.LogoURL),
-				ServerURL:  ptr.Of(doc.Servers[0].URL),
-				Manifest:   m.Manifest,
-				OpenapiDoc: doc,
-			},
-			ToolIDs: make([]int64, 0, len(m.Tools)),
-		}
-
-		if pluginProducts[m.PluginID] != nil {
-			logs.CtxErrorf(ctx, "duplicate plugin id '%d', openapi_doc_file=%s", m.PluginID, m.OpenapiDocFile)
-			continue
-		}
-
-		pluginProducts[m.PluginID] = pi
-
-		apis := make(map[dto.UniqueToolAPI]*model.Openapi3Operation, len(doc.Paths))
-		for subURL, pathItem := range doc.Paths {
-			for method, op := range pathItem.Operations() {
-				api := dto.UniqueToolAPI{
-					SubURL: subURL,
-					Method: strings.ToUpper(method),
-				}
-				apis[api] = model.NewOpenapi3Operation(op)
-			}
-		}
-
-		for _, t := range m.Tools {
-			if t.Deprecated {
+			// Parse MCP config
+			mcpConfig, err := parseMCPConfigFromManifest(m.Manifest)
+			if err != nil {
+				logs.CtxErrorf(ctx, "[MCP] Failed to parse MCP config for plugin_id=%d: %v", m.PluginID, err)
 				continue
 			}
 
-			_, ok := toolProducts[t.ToolID]
-			if ok {
-				logs.CtxErrorf(ctx, "duplicate tool id '%d', openapi_doc_file=%s", t.ToolID, m.OpenapiDocFile)
-				continue
-			}
+			// Create a minimal OpenAPI doc for MCP plugins
+			doc = createMinimalOpenAPIDocForMCP(m.Manifest)
 
-			api := dto.UniqueToolAPI{
-				SubURL: t.SubURL,
-				Method: strings.ToUpper(t.Method),
-			}
-			op, ok := apis[api]
-			if !ok {
-				logs.CtxErrorf(ctx, "api '[%s]:%s' not found in doc '%s', openapi_doc_file=%s", api.Method, api.SubURL, docPath, m.OpenapiDocFile)
-				continue
-			}
-			if err = op.Validate(ctx); err != nil {
-				logs.CtxErrorf(ctx, "the openapi3 operation of tool '[%s]:%s' in '%s' validates failed, openapi_doc_file=%s, err=%v",
-					t.Method, t.SubURL, docPath, m.OpenapiDocFile, err)
-				continue
-			}
-
-			pi.ToolIDs = append(pi.ToolIDs, t.ToolID)
-
-			toolProducts[t.ToolID] = &ToolInfo{
-				Info: &entity.ToolInfo{
-					ID:              t.ToolID,
-					PluginID:        m.PluginID,
-					Version:         ptr.Of(m.Version),
-					Method:          ptr.Of(t.Method),
-					SubURL:          ptr.Of(t.SubURL),
-					Operation:       op,
-					ActivatedStatus: ptr.Of(consts.ActivateTool),
-					DebugStatus:     ptr.Of(common.APIDebugStatus_DebugPassed),
+			pi = &PluginInfo{
+				Info: &model.PluginInfo{
+					ID:         m.PluginID,
+					PluginType: m.PluginType,
+					Version:    ptr.Of(m.Version),
+					IconURI:    ptr.Of(m.Manifest.LogoURL),
+					ServerURL:  ptr.Of("mcp://"), // MCP plugins don't have HTTP server URL
+					Manifest:   m.Manifest,
+					OpenapiDoc: doc,
 				},
+				ToolIDs: make([]int64, 0),
+			}
+
+			if pluginProducts[m.PluginID] != nil {
+				logs.CtxErrorf(ctx, "duplicate plugin id '%d', openapi_doc_file=%s", m.PluginID, m.OpenapiDocFile)
+				continue
+			}
+
+			pluginProducts[m.PluginID] = pi
+
+			// Load tools from MCP server
+			loader := &mcpToolLoader{}
+			mcpTools, err := loader.LoadMCPTools(ctx, m.PluginID, m.Version, mcpConfig)
+			if err != nil {
+				logs.CtxErrorf(ctx, "[MCP] Failed to load tools for plugin_id=%d: %v", m.PluginID, err)
+				delete(pluginProducts, m.PluginID)
+				continue
+			}
+
+			// Add MCP tools to toolProducts
+			for _, toolInfo := range mcpTools {
+				// Check for duplicate tool ID
+				if _, ok := toolProducts[toolInfo.Info.ID]; ok {
+					logs.CtxWarnf(ctx, "[MCP] Duplicate tool id '%d' for plugin_id=%d, skipping", toolInfo.Info.ID, m.PluginID)
+					continue
+				}
+
+				pi.ToolIDs = append(pi.ToolIDs, toolInfo.Info.ID)
+				toolProducts[toolInfo.Info.ID] = toolInfo
+			}
+
+			// Also add tools from meta.yaml if specified (for backward compatibility)
+			for _, t := range m.Tools {
+				if t.Deprecated {
+					continue
+				}
+
+				_, ok := toolProducts[t.ToolID]
+				if ok {
+					logs.CtxWarnf(ctx, "[MCP] Duplicate tool id '%d' in meta.yaml for plugin_id=%d, skipping", t.ToolID, m.PluginID)
+					continue
+				}
+
+				// For MCP plugins, tools from meta.yaml are optional and may not have OpenAPI doc
+				// We'll skip them if they're not found in MCP server response
+				logs.CtxInfof(ctx, "[MCP] Tool from meta.yaml (tool_id=%d) will be ignored, using MCP server tools", t.ToolID)
+			}
+		} else {
+			// For regular OpenAPI plugins, use existing logic
+			docPath := path.Join(root, m.OpenapiDocFile)
+			loader := openapi3.NewLoader()
+			_doc, err := loader.LoadFromFile(docPath)
+			if err != nil {
+				logs.CtxErrorf(ctx, "load openapi3 doc file '%s', err=%v", docPath, err)
+				continue
+			}
+
+			doc = ptr.Of(model.Openapi3T(*_doc))
+
+			err = doc.Validate(ctx)
+			if err != nil {
+				logs.CtxErrorf(ctx, "the openapi3 doc '%s' validates failed, err=%v", m.OpenapiDocFile, err)
+				continue
+			}
+
+			pi = &PluginInfo{
+				Info: &model.PluginInfo{
+					ID:         m.PluginID,
+					PluginType: m.PluginType,
+					Version:    ptr.Of(m.Version),
+					IconURI:    ptr.Of(m.Manifest.LogoURL),
+					ServerURL:  ptr.Of(doc.Servers[0].URL),
+					Manifest:   m.Manifest,
+					OpenapiDoc: doc,
+				},
+				ToolIDs: make([]int64, 0, len(m.Tools)),
+			}
+
+			if pluginProducts[m.PluginID] != nil {
+				logs.CtxErrorf(ctx, "duplicate plugin id '%d', openapi_doc_file=%s", m.PluginID, m.OpenapiDocFile)
+				continue
+			}
+
+			pluginProducts[m.PluginID] = pi
+
+			apis := make(map[dto.UniqueToolAPI]*model.Openapi3Operation, len(doc.Paths))
+			for subURL, pathItem := range doc.Paths {
+				for method, op := range pathItem.Operations() {
+					api := dto.UniqueToolAPI{
+						SubURL: subURL,
+						Method: strings.ToUpper(method),
+					}
+					apis[api] = model.NewOpenapi3Operation(op)
+				}
+			}
+
+			for _, t := range m.Tools {
+				if t.Deprecated {
+					continue
+				}
+
+				_, ok := toolProducts[t.ToolID]
+				if ok {
+					logs.CtxErrorf(ctx, "duplicate tool id '%d', openapi_doc_file=%s", t.ToolID, m.OpenapiDocFile)
+					continue
+				}
+
+				api := dto.UniqueToolAPI{
+					SubURL: t.SubURL,
+					Method: strings.ToUpper(t.Method),
+				}
+				op, ok := apis[api]
+				if !ok {
+					logs.CtxErrorf(ctx, "api '[%s]:%s' not found in doc '%s', openapi_doc_file=%s", api.Method, api.SubURL, docPath, m.OpenapiDocFile)
+					continue
+				}
+				if err = op.Validate(ctx); err != nil {
+					logs.CtxErrorf(ctx, "the openapi3 operation of tool '[%s]:%s' in '%s' validates failed, openapi_doc_file=%s, err=%v",
+						t.Method, t.SubURL, docPath, m.OpenapiDocFile, err)
+					continue
+				}
+
+				pi.ToolIDs = append(pi.ToolIDs, t.ToolID)
+
+				toolProducts[t.ToolID] = &ToolInfo{
+					Info: &entity.ToolInfo{
+						ID:              t.ToolID,
+						PluginID:        m.PluginID,
+						Version:         ptr.Of(m.Version),
+						Method:          ptr.Of(t.Method),
+						SubURL:          ptr.Of(t.SubURL),
+						Operation:       op,
+						ActivatedStatus: ptr.Of(consts.ActivateTool),
+						DebugStatus:     ptr.Of(common.APIDebugStatus_DebugPassed),
+					},
+				}
 			}
 		}
 
@@ -284,4 +367,53 @@ func checkPluginMetaInfo(ctx context.Context, m *pluginProductMeta) (continued b
 	}
 
 	return true
+}
+
+// parseMCPConfigFromManifest parses MCP config from plugin manifest
+func parseMCPConfigFromManifest(manifest *model.PluginManifest) (*mcp.Config, error) {
+	if manifest == nil {
+		return nil, fmt.Errorf("plugin manifest is nil")
+	}
+
+	if manifest.API.Extensions == nil {
+		return nil, fmt.Errorf("manifest.api.extensions is nil")
+	}
+
+	mcpConfigData, ok := manifest.API.Extensions["mcp_config"]
+	if !ok {
+		return nil, fmt.Errorf("mcp_config not found in manifest.api.extensions")
+	}
+
+	// Convert to JSON and parse
+	configJSON, err := json.Marshal(mcpConfigData)
+	if err != nil {
+		return nil, fmt.Errorf("marshal mcp_config failed: %w", err)
+	}
+
+	var config mcp.Config
+	if err := json.Unmarshal(configJSON, &config); err != nil {
+		return nil, fmt.Errorf("unmarshal mcp_config failed: %w", err)
+	}
+
+	return &config, nil
+}
+
+// createMinimalOpenAPIDocForMCP creates a minimal OpenAPI document for MCP plugins
+func createMinimalOpenAPIDocForMCP(manifest *model.PluginManifest) *model.Openapi3T {
+	doc := &openapi3.T{
+		OpenAPI: "3.0.1",
+		Info: &openapi3.Info{
+			Title:       manifest.NameForHuman,
+			Description: manifest.DescriptionForHuman,
+			Version:     "1.0.0",
+		},
+		Servers: openapi3.Servers{
+			&openapi3.Server{
+				URL: "mcp://",
+			},
+		},
+		Paths: make(openapi3.Paths),
+	}
+
+	return ptr.Of(model.Openapi3T(*doc))
 }
