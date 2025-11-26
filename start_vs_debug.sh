@@ -57,6 +57,15 @@ if [ ! -d "backend/resources/conf" ]; then
     echo ""
 fi
 
+# 预拉取必要的镜像（避免启动时拉取失败）
+echo "📥 预拉取 Docker 镜像..."
+if [ -f "docker/pre-pull-images.sh" ]; then
+    bash docker/pre-pull-images.sh || echo "⚠️  镜像预拉取失败，将继续尝试启动..."
+else
+    echo "⚠️  预拉取脚本不存在，跳过..."
+fi
+echo ""
+
 # 启动中间件
 echo "🐳 启动中间件容器（MySQL, Redis, ES, Milvus, MinIO, Etcd）..."
 echo "   这可能需要几分钟时间，首次运行需要下载 Docker 镜像..."
