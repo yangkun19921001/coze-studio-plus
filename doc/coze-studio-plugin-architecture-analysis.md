@@ -710,54 +710,235 @@ sequenceDiagram
 
 #### 4.2.3 核心代码流程
 
-**阶段一：Workflow 启动与 LLM 节点执行**
+**阶段一：Workflow 启动与准备**
 
 ```go
-// backend/domain/workflow/service/service_impl.go
-func (s *workflowServiceImpl) SyncExecute(ctx context.Context, config *workflowModel.ExecuteConfig, 
-    input map[string]any) (*workflowModel.WorkflowExecution, error) {
+// backend/domain/workflow/service/executable_impl.go:52
+func (i *impl) SyncExecute(ctx context.Context, config workflowModel.ExecuteConfig, 
+    input map[string]any) (*entity.WorkflowExecution, vo.TerminatePlan, error) {
     
-    // 1. 获取 Workflow 实体
-    workflowEntity, err := s.GetWorkflowEntity(ctx, config)
+    // 1. 获取 Workflow 实体（从数据库或缓存）
+    wfEntity, err := i.Get(ctx, &vo.GetPolicy{
+        ID:       config.ID,
+        QType:    config.From,
+        MetaOnly: false,
+        Version:  config.Version,
+        CommitID: config.CommitID,
+    })
+    if err != nil {
+        return nil, "", err
+    }
     
-    // 2. 解析 Canvas 为 Schema
-    schema, err := adaptor.ToSchema(ctx, workflowEntity.Canvas)
+    // 2. 解析 Canvas JSON 为 Canvas 对象
+    c := &vo.Canvas{}
+    if err = sonic.UnmarshalString(wfEntity.Canvas, c); err != nil {
+        return nil, "", fmt.Errorf("failed to unmarshal canvas: %w", err)
+    }
     
-    // 3. 编译 Workflow
-    runner, err := compose.NewWorkflow(schema)
+    // 3. 将 Canvas 转换为 WorkflowSchema（节点和连接的抽象）
+    workflowSC, err := adaptor.CanvasToWorkflowSchema(ctx, c)
+    if err != nil {
+        return nil, "", fmt.Errorf("failed to convert canvas to workflow schema: %w", err)
+    }
     
-    // 4. 执行 Workflow（触发节点执行）
-    output, err := runner.Invoke(ctx, input)
+    // 4. 创建 Workflow 对象（编译节点为可执行的 Runner）
+    var wfOpts []compose.WorkflowOption
+    wfOpts = append(wfOpts, compose.WithIDAsName(wfEntity.ID))
+    if s := execute.GetStaticConfig(); s != nil && s.MaxNodeCountPerWorkflow > 0 {
+        wfOpts = append(wfOpts, compose.WithMaxNodeCount(s.MaxNodeCountPerWorkflow))
+    }
     
-    return &workflowModel.WorkflowExecution{
-        Output: output,
-    }, nil
+    wf, err := compose.NewWorkflow(ctx, workflowSC, wfOpts...)
+    if err != nil {
+        return nil, "", fmt.Errorf("failed to create workflow: %w", err)
+    }
+    
+    // 5. 转换输入参数（类型检查和转换）
+    var cOpts []nodes.ConvertOption
+    inputFileFields := make(map[string]*workflowModel.FileInfo)
+    cOpts = append(cOpts, nodes.WithCollectFileFields(inputFileFields), nodes.WithNotNeedTrimQueryFileName(true))
+    if config.InputFailFast {
+        cOpts = append(cOpts, nodes.FailFast())
+    }
+    
+    convertedInput, ws, err := nodes.ConvertInputs(ctx, input, wf.Inputs(), cOpts...)
+    if err != nil {
+        return nil, "", err
+    }
+    
+    // 6. 准备执行上下文（生成执行 ID、事件通道等）
+    inStr, err := sonic.MarshalString(input)
+    if err != nil {
+        return nil, "", err
+    }
+    
+    cancelCtx, executeID, opts, lastEventChan, err := compose.NewWorkflowRunner(
+        wfEntity.GetBasic(), workflowSC, config,
+        compose.WithInput(inStr)).Prepare(ctx)
+    if err != nil {
+        return nil, "", err
+    }
+    
+    // 7. 同步执行 Workflow
+    startTime := time.Now()
+    out, err := wf.SyncRun(cancelCtx, convertedInput, opts...)
+    if err != nil {
+        // 处理错误（非中断错误）
+        if _, ok := einoCompose.ExtractInterruptInfo(err); !ok {
+            var wfe vo.WorkflowError
+            if errors.As(err, &wfe) {
+                return nil, "", wfe.AppendDebug(executeID, wfEntity.SpaceID, wfEntity.ID)
+            } else {
+                return nil, "", vo.WrapWithDebug(errno.ErrWorkflowExecuteFail, err, 
+                    executeID, wfEntity.SpaceID, wfEntity.ID, errorx.KV("cause", err.Error()))
+            }
+        }
+    }
+    
+    // 8. 等待最后一个事件（成功/失败/中断）
+    lastEvent := <-lastEventChan
+    
+    // 9. 构建执行结果
+    var outStr string
+    if wf.TerminatePlan() == vo.ReturnVariables {
+        outStr, err = sonic.MarshalString(out)
+    } else {
+        outStr = out["output"].(string)
+    }
+    
+    // 10. 返回执行结果
+    return &entity.WorkflowExecution{
+        ID:            executeID,
+        WorkflowID:    wfEntity.ID,
+        Version:       wfEntity.GetVersion(),
+        SpaceID:       wfEntity.SpaceID,
+        ExecuteConfig: config,
+        CreatedAt:     startTime,
+        NodeCount:     workflowSC.NodeCount(),
+        Status:        convertEventTypeToStatus(lastEvent.Type),
+        Duration:      lastEvent.Duration,
+        Input:         ptr.Of(inStr),
+        Output:        ptr.Of(outStr),
+        TokenInfo: &entity.TokenUsage{
+            InputTokens:  lastEvent.GetInputTokens(),
+            OutputTokens: lastEvent.GetOutputTokens(),
+        },
+    }, wf.TerminatePlan(), nil
+}
+```
+
+**Workflow 创建流程**：
+
+```go
+// backend/domain/workflow/internal/compose/workflow.go:83
+func NewWorkflow(ctx context.Context, sc *schema.WorkflowSchema, opts ...WorkflowOption) (*Workflow, error) {
+    sc.Init()
+    
+    wf := &Workflow{
+        workflow:    compose.NewWorkflow[map[string]any, map[string]any](compose.WithGenLocalState(GenState())),
+        hierarchy:   sc.Hierarchy,
+        connections: sc.Connections,
+        schema:      sc,
+    }
+    
+    // 1. 添加所有复合节点（包含子工作流的节点）
+    compositeNodes := sc.GetCompositeNodes()
+    processedNodeKey := make(map[vo.NodeKey]struct{})
+    for i := range compositeNodes {
+        cNode := compositeNodes[i]
+        if err := wf.AddCompositeNode(ctx, cNode); err != nil {
+            return nil, err
+        }
+        processedNodeKey[cNode.Parent.Key] = struct{}{}
+        for _, child := range cNode.Children {
+            processedNodeKey[child.Key] = struct{}{}
+        }
+    }
+    
+    // 2. 添加所有普通节点（包括 LLM 节点、插件节点等）
+    for _, ns := range sc.Nodes {
+        if _, ok := processedNodeKey[ns.Key]; !ok {
+            if err := wf.AddNode(ctx, ns); err != nil {
+                return nil, err
+            }
+        }
+        
+        if ns.Type == entity.NodeTypeExit {
+            wf.terminatePlan = ns.Configs.(*exit.Config).TerminatePlan
+        }
+    }
+    
+    // 3. 编译成可执行的 Runner（构建 DAG 执行图）
+    var compileOpts []compose.GraphCompileOption
+    if wf.requireCheckpoint {
+        compileOpts = append(compileOpts, compose.WithCheckPointStore(workflow2.GetRepository()))
+    }
+    if wfOpts.idAsName {
+        compileOpts = append(compileOpts, compose.WithGraphName(strconv.FormatInt(wfOpts.wfID, 10)))
+    }
+    
+    r, err := wf.Compile(ctx, compileOpts...)
+    if err != nil {
+        return nil, err
+    }
+    wf.Runner = r
+    
+    return wf, nil
+}
+```
+
+**Workflow 同步执行**：
+
+```go
+// backend/domain/workflow/internal/compose/workflow.go:176
+func (w *Workflow) SyncRun(ctx context.Context, in map[string]any, opts ...compose.Option) (map[string]any, error) {
+    // 直接调用 Runner 的 Invoke 方法
+    return w.Runner.Invoke(ctx, in, opts...)
 }
 ```
 
 **阶段二：LLM 节点执行（Function Calling）**
 
+LLM 节点在构建时（`Build` 方法）会准备工具列表，在执行时（`Invoke` 方法）会调用 LLM 并处理 Function Calling。
+
+**LLM 节点构建（准备工具列表）**：
+
 ```go
-// backend/domain/workflow/internal/nodes/llm/llm.go
-func (l *LLM) Invoke(ctx context.Context, in map[string]any, opts ...nodes.NodeOption) (out map[string]any, err error) {
-    // 1. 准备执行选项
-    composeOpts, resumingEvent, err := l.prepare(ctx, in, opts...)
+// backend/domain/workflow/internal/nodes/llm/llm.go:385
+// 注意：这是真实的代码路径，以下代码片段都来自实际的代码库
+func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2.BuildOption) (any, error) {
+    var (
+        tools                 []tool.BaseTool
+        toolsReturnDirectly   map[string]bool
+        knowledgeRecallConfig *KnowledgeRecallConfig
+    )
     
-    // 2. 构建工具列表（包含新闻插件）
-    tools := []tool.InvokableTool{}
-    if l.c.FCParam != nil && l.c.FCParam.PluginFCParam != nil {
+    // 1. 构建 ChatModel
+    chatModel, info, err := modelbuilder.BuildModelByID(ctx, c.LLMParams.ModelType, c.LLMParams.ToModelBuilderLLMParams())
+    
+    // 2. 处理 Function Calling 参数
+    fcParams := c.FCParam
+    if fcParams != nil && fcParams.PluginFCParam != nil {
         // 2.1 构建插件工具请求
         pluginToolsInvokableReq := make(map[int64]*wrapPlugin.ToolsInvokableRequest)
-        for _, p := range l.c.FCParam.PluginFCParam.PluginList {
+        for _, p := range fcParams.PluginFCParam.PluginList {
             pid, _ := strconv.ParseInt(p.PluginID, 10, 64)
             toolID, _ := strconv.ParseInt(p.ApiId, 10, 64)
             
-            // 2.2 创建插件工具请求
+            var (
+                requestParameters  []*workflow3.APIParameter
+                responseParameters []*workflow3.APIParameter
+            )
+            if p.FCSetting != nil {
+                requestParameters = p.FCSetting.RequestParameters
+                responseParameters = p.FCSetting.ResponseParameters
+            }
+            
             if req, ok := pluginToolsInvokableReq[pid]; ok {
                 req.ToolsInvokableInfo[toolID] = &wrapPlugin.ToolsInvokableInfo{
-                    ToolID: toolID,
-                    RequestAPIParametersConfig:  p.FCSetting.RequestParameters,
-                    ResponseAPIParametersConfig: p.FCSetting.ResponseParameters,
+                    ToolID:                      toolID,
+                    RequestAPIParametersConfig:  requestParameters,
+                    ResponseAPIParametersConfig: responseParameters,
                 }
             } else {
                 pluginToolsInvokableReq[pid] = &wrapPlugin.ToolsInvokableRequest{
@@ -768,149 +949,394 @@ func (l *LLM) Invoke(ctx context.Context, in map[string]any, opts ...nodes.NodeO
                     },
                     ToolsInvokableInfo: map[int64]*wrapPlugin.ToolsInvokableInfo{
                         toolID: {
-                            ToolID: toolID,
-                            RequestAPIParametersConfig:  p.FCSetting.RequestParameters,
-                            ResponseAPIParametersConfig: p.FCSetting.ResponseParameters,
+                            ToolID:                      toolID,
+                            RequestAPIParametersConfig:  requestParameters,
+                            ResponseAPIParametersConfig: responseParameters,
                         },
                     },
+                    IsDraft: p.IsDraft,
                 }
             }
         }
         
-        // 2.3 获取插件工具列表
-        for pid, req := range pluginToolsInvokableReq {
-            pluginTools, err := wrapPlugin.GetPluginToolsInvokable(ctx, pid, req)
+        // 2.2 获取插件工具列表（转换为 InvokableTool）
+        inInvokableTools := make([]tool.BaseTool, 0, len(fcParams.PluginFCParam.PluginList))
+        for _, req := range pluginToolsInvokableReq {
+            toolMap, err := wrapPlugin.GetPluginInvokableTools(ctx, req)
             if err != nil {
                 return nil, err
             }
-            
-            // 2.4 转换为 eino Tool 接口
-            for _, pt := range pluginTools {
-                tools = append(tools, newInvokableTool(pt))
+            for _, t := range toolMap {
+                inInvokableTools = append(inInvokableTools, newInvokableTool(t))
             }
         }
-    }
-    
-    // 3. 配置工具回调处理器
-    if len(tools) > 0 {
-        toolCallbackHandler := &callbacks2.ToolCallbackHandler{
-            OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *tool.CallbackInput) context.Context {
-                // 发送 Tool Start 事件（用于实时流式输出）
-                toolCallID := compose.GetToolCallID(ctx)
-                logs.Infof("Tool Start: ID=%s, tool=%s, arguments=%s", 
-                    toolCallID, info.Name, input.ArgumentsInJSON)
-                
-                // 发送 SSE 事件给前端
-                if llmRef != nil && llmRef.realtimeWriter != nil {
-                    dataMsg := &entity.DataMessage{
-                        Type:      entity.FunctionCall,
-                        Role:      schema.Assistant,
-                        NodeType:  entity.NodeTypeLLM,
-                        FunctionCall: &entity.FunctionCallInfo{
-                            FunctionInfo: entity.FunctionInfo{
-                                Name: info.Name,
-                                Type: entity.PluginTool,
-                            },
-                            CallID:    toolCallID,
-                            Arguments: parseArguments(input.ArgumentsInJSON),
-                        },
-                    }
-                    llmRef.realtimeWriter.Send(&entity.Message{DataMessage: dataMsg}, nil)
-                }
-                
-                return ctx
-            },
-            OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *tool.CallbackOutput) context.Context {
-                // 发送 Tool End 事件
-                logs.Infof("Tool End: ID=%s, tool=%s, output=%s", 
-                    compose.GetToolCallID(ctx), info.Name, output.OutputInJSON)
-                
-                // 发送 SSE 事件给前端
-                if llmRef != nil && llmRef.realtimeWriter != nil {
-                    dataMsg := &entity.DataMessage{
-                        Type:      entity.FunctionResult,
-                        Role:      schema.Tool,
-                        NodeType:  entity.NodeTypeLLM,
-                        FunctionCall: &entity.FunctionCallInfo{
-                            CallID: compose.GetToolCallID(ctx),
-                            Result: output.OutputInJSON,
-                        },
-                    }
-                    llmRef.realtimeWriter.Send(&entity.Message{DataMessage: dataMsg}, nil)
-                }
-                
-                return ctx
-            },
+        if len(inInvokableTools) > 0 {
+            tools = append(tools, inInvokableTools...)
         }
-        composeOpts = append(composeOpts, compose.WithCallbacks(toolCallbackHandler))
     }
     
-    // 4. 调用 LLM（带工具）
+    // 3. 构建 LLM Graph
+    g := compose.NewGraph[map[string]any, map[string]any](
+        compose.WithGenLocalState(func(ctx context.Context) (state llmState) {
+            return llmState{}
+        }))
+    
+    // 4. 处理输出格式和用户提示
+    format := c.OutputFormat
+    userPrompt := c.UserPrompt
+    // ... 根据格式调整提示词 ...
+    
+    // 5. 添加 Prompt Template 节点
+    if knowledgeRecallConfig != nil {
+        // 如果有知识库，注入知识库工具
+        err := injectKnowledgeTool(ctx, g, c.UserPrompt, knowledgeRecallConfig)
+        userPrompt = fmt.Sprintf("{{%s}}%s", knowledgeUserPromptTemplateKey, userPrompt)
+        // ... 添加知识库相关的节点和边 ...
+    } else {
+        sp := newPromptTpl(schema.System, c.SystemPrompt, ns.InputTypes)
+        up := newPromptTpl(schema.User, userPrompt, ns.InputTypes, withAssociateUserInputFields(c.AssociateStartNodeUserInputFields))
+        template := newPrompts(sp, up, modelWithInfo)
+        templateWithChatHistory := newPromptsWithChatHistory(template, c.ChatHistorySetting, modelWithInfo)
+        
+        _ = g.AddChatTemplateNode(templateNodeKey, templateWithChatHistory)
+        _ = g.AddEdge(compose.START, templateNodeKey)
+    }
+    
+    // 6. 根据是否有工具选择不同的节点类型
+    if len(tools) > 0 {
+        // 6.1 有工具：创建 React Agent（ReAct 模式）
+        m, ok := modelWithInfo.(model.ToolCallingChatModel)
+        if !ok {
+            return nil, errors.New("requires a ToolCallingChatModel to use with tools")
+        }
+        
+        reactConfig := react.AgentConfig{
+            ToolCallingModel: m,
+            ToolsConfig:      compose.ToolsNodeConfig{Tools: tools},  // 传入工具列表
+            ModelNodeName:    agentModelName,
+            GraphName:        reactGraphName,
+            MaxStep:          100,
+        }
+        
+        if len(toolsReturnDirectly) > 0 {
+            reactConfig.ToolReturnDirectly = make(map[string]struct{}, len(toolsReturnDirectly))
+            for k := range toolsReturnDirectly {
+                reactConfig.ToolReturnDirectly[k] = struct{}{}
+            }
+        }
+        
+        reactAgent, err := react.NewAgent(ctx, &reactConfig)
+        if err != nil {
+            return nil, err
+        }
+        
+        // 导出 Agent Graph 并添加到主 Graph
+        agentNode, opts := reactAgent.ExportGraph()
+        opts = append(opts, compose.WithNodeName(reactGraphName))
+        _ = g.AddGraphNode(llmNodeKey, agentNode, opts...)
+    } else {
+        // 6.2 无工具：直接添加 ChatModel 节点
+        _ = g.AddChatModelNode(llmNodeKey, modelWithInfo)
+    }
+    
+    // 7. 添加边连接
+    _ = g.AddEdge(templateNodeKey, llmNodeKey)
+    
+    // 8. 添加输出转换节点（根据输出格式）
+    if format == FormatJSON {
+        iConvert := func(ctx context.Context, msg *schema.Message) (map[string]any, error) {
+            return jsonParse(ctx, msg.Content, ns.OutputTypes)
+        }
+        convertNode := compose.InvokableLambda(iConvert)
+        _ = g.AddLambdaNode(outputConvertNodeKey, convertNode)
+    } else {
+        // 文本格式的输出转换
+        var outputKey string
+        var hasReasoning bool
+        for k, v := range ns.OutputTypes {
+            if v.Type != vo.DataTypeString {
+                panic("impossible")
+            }
+            if k == ReasoningOutputKey {
+                hasReasoning = true
+            } else {
+                outputKey = k
+            }
+        }
+        
+        iConvert := func(_ context.Context, msg *schema.Message, _ ...struct{}) (map[string]any, error) {
+            out := map[string]any{outputKey: msg.Content}
+            if hasReasoning {
+                out[ReasoningOutputKey] = getReasoningContent(msg)
+            }
+            return out, nil
+        }
+        // ... 流式输出的转换逻辑 ...
+        convertNode, err := compose.AnyLambda(iConvert, nil, nil, tConvert)
+        _ = g.AddLambdaNode(outputConvertNodeKey, convertNode)
+    }
+    
+    _ = g.AddEdge(llmNodeKey, outputConvertNodeKey)
+    _ = g.AddEdge(outputConvertNodeKey, compose.END)
+    
+    // 9. 编译 Graph 为可执行的 Runner
+    requireCheckpoint := c.RequireCheckpoint()
+    var compileOpts []compose.GraphCompileOption
+    if requireCheckpoint {
+        compileOpts = append(compileOpts, compose.WithCheckPointStore(workflow.GetRepository()))
+    }
+    compileOpts = append(compileOpts, compose.WithGraphName("workflow_llm_node_graph"))
+    
+    r, err := g.Compile(ctx, compileOpts...)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 10. 创建工具回调处理器（用于实时流式输出）
+    var toolCallbackHandler callbacks.Handler
+    if len(tools) >= 0 {
+        toolCallbackHandler = callbacks2.NewHandlerHelper().
+            ChatModel(&callbacks2.ModelCallbackHandler{
+                OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *model.CallbackInput) context.Context {
+                    logs.Infof("ChatModel Start: node=%s", info.Name)
+                    return ctx
+                },
+                OnEndWithStreamOutput: func(ctx context.Context, info *callbacks.RunInfo, output *schema.StreamReader[*model.CallbackOutput]) context.Context {
+                    // 流式输出处理，发送实时消息
+                    // ...
+                    return ctx
+                },
+            }).
+            Tool(&callbacks2.ToolCallbackHandler{
+                OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *tool.CallbackInput) context.Context {
+                    // 发送 Tool Start 事件
+                    toolCallID := compose.GetToolCallID(ctx)
+                    // ... 发送 SSE 事件 ...
+                    return ctx
+                },
+                OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *tool.CallbackOutput) context.Context {
+                    // 发送 Tool End 事件
+                    // ... 发送 SSE 事件 ...
+                    return ctx
+                },
+            }).Handler()
+    }
+    
+    // 11. 创建 LLM 节点实例
+    return &LLM{
+        r:                  r,                    // 编译后的 Runner
+        c:                  c,                    // 配置
+        toolCallbackHandler: toolCallbackHandler, // 工具回调处理器
+        llmRef:             llmRef,              // 引用（用于回调访问 realtimeWriter）
+    }, nil
+}
+```
+
+**LLM 节点执行**：
+
+```go
+// backend/domain/workflow/internal/nodes/llm/llm.go:1432
+func (l *LLM) Invoke(ctx context.Context, in map[string]any, opts ...nodes.NodeOption) (out map[string]any, err error) {
+    // 1. 准备执行选项（包括工具回调处理器）
+    composeOpts, resumingEvent, err := l.prepare(ctx, in, opts...)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 2. 添加工具回调处理器（用于实时流式输出）
+    if l.toolCallbackHandler != nil {
+        composeOpts = append(composeOpts, compose.WithCallbacks(l.toolCallbackHandler))
+    }
+    
+    // 3. 调用 LLM Graph（如果 LLM 生成 Function Call，会自动调用工具）
     out, err = l.r.Invoke(ctx, in, composeOpts...)
+    if err != nil {
+        err = l.handleInterrupt(ctx, err, resumingEvent)
+        return nil, err
+    }
     
     return out, nil
 }
 ```
 
-**阶段三：插件工具执行（Function Calling 场景）**
+**工具回调处理器（实时流式输出）**：
 
 ```go
-// backend/domain/workflow/internal/nodes/llm/plugin.go
-func (p pluginInvokableTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
-    // 1. 获取执行配置
-    execCfg := execute.GetExecuteConfig(opts...)
-    
-    // 2. 调用插件服务
-    return p.pluginInvokableTool.PluginInvoke(ctx, argumentsInJSON, execCfg)
+// backend/domain/workflow/internal/nodes/llm/llm.go:938
+toolCallbackHandler := &callbacks2.ToolCallbackHandler{
+    OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *tool.CallbackInput) context.Context {
+        toolCallID := compose.GetToolCallID(ctx)
+        logs.Infof("Tool Start: ID=%s, tool=%s, arguments=%s", 
+            toolCallID, info.Name, input.ArgumentsInJSON)
+        
+        // 发送 SSE 事件给前端
+        if llmRef != nil && llmRef.realtimeWriter != nil {
+            exeCtx := execute.GetExeCtx(ctx)
+            if exeCtx != nil {
+                var args map[string]any
+                if err := sonic.UnmarshalString(input.ArgumentsInJSON, &args); err != nil {
+                    args = map[string]any{"raw": input.ArgumentsInJSON}
+                }
+                
+                dataMsg := &entity.DataMessage{
+                    Type:      entity.FunctionCall,
+                    Role:      schema.Assistant,
+                    NodeType:  entity.NodeTypeLLM,
+                    ExecuteID: exeCtx.RootExecuteID,
+                    NodeID:    string(exeCtx.NodeKey),
+                    NodeTitle: exeCtx.NodeName,
+                    FunctionCall: &entity.FunctionCallInfo{
+                        FunctionInfo: entity.FunctionInfo{
+                            Name: info.Name,
+                            Type: entity.PluginTool,
+                        },
+                        CallID:    toolCallID,
+                        Arguments: args,
+                    },
+                }
+                llmRef.realtimeWriter.Send(&entity.Message{DataMessage: dataMsg}, nil)
+            }
+        }
+        return ctx
+    },
+    OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *tool.CallbackOutput) context.Context {
+        // 发送 Tool End 事件
+        logs.Infof("Tool End: ID=%s, tool=%s, output=%s", 
+            compose.GetToolCallID(ctx), info.Name, output.OutputInJSON)
+        
+        // 发送 SSE 事件给前端
+        if llmRef != nil && llmRef.realtimeWriter != nil {
+            exeCtx := execute.GetExeCtx(ctx)
+            if exeCtx != nil {
+                dataMsg := &entity.DataMessage{
+                    Type:      entity.FunctionResult,
+                    Role:      schema.Tool,
+                    NodeType:  entity.NodeTypeLLM,
+                    ExecuteID: exeCtx.RootExecuteID,
+                    NodeID:    string(exeCtx.NodeKey),
+                    NodeTitle: exeCtx.NodeName,
+                    FunctionCall: &entity.FunctionCallInfo{
+                        CallID: compose.GetToolCallID(ctx),
+                        Result: output.OutputInJSON,
+                    },
+                }
+                llmRef.realtimeWriter.Send(&entity.Message{DataMessage: dataMsg}, nil)
+            }
+        }
+        return ctx
+    },
+}
+```
+
+**阶段三：插件工具执行（Function Calling 场景）**
+
+当 LLM 生成 Function Call 时，eino 框架会自动调用工具的 `InvokableRun` 方法。
+
+**工具包装器**：
+
+```go
+// backend/domain/workflow/internal/nodes/llm/plugin.go:32
+func newInvokableTool(pl crossplugin.InvokableTool) tool.InvokableTool {
+    return &pluginInvokableTool{
+        pluginInvokableTool: pl,
+    }
 }
 
-// backend/crossdomain/plugin/model/plugin.go
-func (p *InvokableTool) PluginInvoke(ctx context.Context, argumentsInJSON string, 
-    execCfg workflowModel.ExecuteConfig) (string, error) {
+type pluginInvokableTool struct {
+    pluginInvokableTool crossplugin.InvokableTool
+}
+
+func (p pluginInvokableTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+    return p.pluginInvokableTool.Info(ctx)
+}
+
+func (p pluginInvokableTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
+    // 1. 获取执行配置（从 Workflow 上下文）
+    execCfg := execute.GetExecuteConfig(opts...)
+    
+    // 2. 调用插件服务执行工具
+    return p.pluginInvokableTool.PluginInvoke(ctx, argumentsInJSON, execCfg)
+}
+```
+
+**插件工具执行**：
+
+```go
+// backend/domain/workflow/plugin/plugin.go:338
+func (p *pluginInvokeTool) PluginInvoke(ctx context.Context, argumentsInJSON string, 
+    cfg workflowModel.ExecuteConfig) (string, error) {
     
     // 1. 构建执行请求
-    var uID string
-    if execCfg.AgentID != nil {
-        uID = execCfg.ConnectorUID
-    } else {
-        uID = conv.Int64ToStr(execCfg.Operator)
-    }
-    
     req := &model.ExecuteToolRequest{
-        UserID:          uID,
-        PluginID:        p.PluginEntity.PluginID,
-        ToolID:          p.ToolID,
+        UserID:          conv.Int64ToStr(cfg.Operator),  // 从执行配置获取用户 ID
+        PluginID:        p.pluginEntity.PluginID,
+        ToolID:          p.toolInfo.ID,
         ExecScene:       consts.ExecSceneOfWorkflow,  // Function Calling 场景也是 Workflow
-        ArgumentsInJson: argumentsInJSON,
-        ExecDraftTool:   p.PluginEntity.PluginVersion == nil || *p.PluginEntity.PluginVersion == "0",
-        PluginFrom:      p.PluginEntity.PluginFrom,
+        ArgumentsInJson: argumentsInJSON,              // LLM 生成的参数 JSON
+        ExecDraftTool:   p.IsDraft,                   // 是否执行草稿工具
+        PluginFrom:      p.pluginEntity.PluginFrom,
     }
     
-    // 2. 执行工具
-    resp, err := crossplugin.DefaultSVC().ExecuteTool(ctx, req,
+    // 2. 构建执行选项
+    execOpts := []model.ExecuteToolOpt{
         model.WithInvalidRespProcessStrategy(consts.InvalidResponseProcessStrategyOfReturnDefault),
-    )
+    }
+    
+    if p.pluginEntity.PluginVersion != nil {
+        execOpts = append(execOpts, model.WithToolVersion(*p.pluginEntity.PluginVersion))
+    }
+    
+    // 3. 如果使用了自定义 Operation（Agent 自定义配置），使用自定义的
+    if p.toolOperation != nil {
+        execOpts = append(execOpts, model.WithOpenapiOperation(model.NewOpenapi3Operation(p.toolOperation)))
+    }
+    
+    // 4. 执行工具
+    r, err := crossplugin.DefaultSVC().ExecuteTool(ctx, req, execOpts...)
     if err != nil {
+        // 5. 处理中断错误（OAuth 授权）
+        if extra, ok := compose.IsInterruptRerunError(err); ok {
+            pluginTIE, ok := extra.(*model.ToolInterruptEvent)
+            if !ok {
+                return "", vo.WrapError(errno.ErrPluginAPIErr, fmt.Errorf("expects ToolInterruptEvent"))
+            }
+            
+            // 创建中断事件
+            id, eErr := workflow.GetRepository().GenID(ctx)
+            ie := &entity2.InterruptEvent{
+                ID:            id,
+                InterruptData: pluginTIE.ToolNeedOAuth.Message,
+                EventType:     workflow3.EventType_WorkflowOauthPlugin,
+            }
+            
+            // 返回授权错误
+            interruptData := ie.InterruptData
+            return "", vo.NewError(errno.ErrAuthorizationRequired, errorx.KV("extra", interruptData))
+        }
         return "", err
     }
     
-    // 3. 返回裁剪后的响应（JSON 字符串）
-    return resp.TrimmedResp, nil
+    // 6. 返回裁剪后的响应（JSON 字符串，供 LLM 继续推理）
+    return r.TrimmedResp, nil
 }
 ```
 
 **阶段四：插件节点执行（直接调用场景）**
 
+当 Workflow 执行到插件节点时，会直接调用节点的 `Invoke` 方法。
+
+**插件节点执行**：
+
 ```go
-// backend/domain/workflow/internal/nodes/plugin/plugin.go
+// backend/domain/workflow/internal/nodes/plugin/plugin.go:117
 func (p *Plugin) Invoke(ctx context.Context, parameters map[string]any) (ret map[string]any, err error) {
-    // 1. 获取执行配置
+    // 1. 从执行上下文获取执行配置
     var exeCfg workflowModel.ExecuteConfig
     if ctxExeCfg := execute.GetExeCtx(ctx); ctxExeCfg != nil {
         exeCfg = ctxExeCfg.ExeCfg
     }
     
-    // 2. 执行插件
+    // 2. 执行插件（parameters 是节点的输入参数）
     result, err := ExecutePlugin(ctx, parameters, &vo.PluginEntity{
         PluginID:      p.pluginID,
         PluginVersion: ptr.Of(p.pluginVersion),
@@ -920,14 +1346,17 @@ func (p *Plugin) Invoke(ctx context.Context, parameters map[string]any) (ret map
     if err != nil {
         // 3. 处理中断错误（OAuth 授权）
         if extra, ok := compose.IsInterruptRerunError(err); ok {
+            // TODO: temporarily replace interrupt with real error, because frontend cannot handle interrupt for now
             interruptData := extra.(*entity.InterruptEvent).InterruptData
             return nil, vo.NewError(errno.ErrAuthorizationRequired, errorx.KV("extra", interruptData))
         }
         return nil, err
     }
     
+    // 4. 返回结果（作为节点的输出）
     return result, nil
 }
+```
 
 // backend/domain/workflow/internal/nodes/plugin/exec.go
 func ExecutePlugin(ctx context.Context, input map[string]any, pe *vo.PluginEntity,

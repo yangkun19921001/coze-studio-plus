@@ -32,6 +32,7 @@ import (
 	"github.com/coze-dev/coze-studio/backend/infra/storage"
 	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/slices"
+	"github.com/coze-dev/coze-studio/backend/pkg/logs"
 	"github.com/coze-dev/coze-studio/backend/types/errno"
 )
 
@@ -84,6 +85,12 @@ func InitService(ctx context.Context, components *ServiceComponents) (*PluginApp
 	PluginApplicationSVC.userSVC = components.UserSVC
 	PluginApplicationSVC.pluginRepo = pluginRepo
 	PluginApplicationSVC.toolRepo = toolRepo
+
+	// Sync MCP plugins from plugin_meta.yaml to database
+	if err := pluginSVC.SyncMcpPluginsFromYaml(ctx); err != nil {
+		logs.CtxErrorf(ctx, "[MCP] Failed to sync MCP plugins from YAML: %v", err)
+		// Don't fail initialization, just log the error
+	}
 
 	return PluginApplicationSVC, nil
 }

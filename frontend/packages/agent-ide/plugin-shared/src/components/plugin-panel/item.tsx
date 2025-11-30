@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-/* eslint-disable @coze-arch/max-line-per-function */
+/* eslint-disable @coze-arch/max-line-per-function -- PluginItem component has complex logic requiring many lines */
 
 import { useState } from 'react';
 
@@ -68,7 +68,7 @@ interface OverflowTagItem {
   key?: string;
 }
 
-// eslint-disable-next-line complexity
+// eslint-disable-next-line complexity -- PluginItem component has complex conditional logic
 export const PluginItem: React.FC<PluginItemProps> = ({
   isAdded,
   onApiToggle,
@@ -115,8 +115,11 @@ export const PluginItem: React.FC<PluginItemProps> = ({
     marketStatus === ProductStatus?.Unlisted ||
     auth_mode === PluginAuthMode.NeedInstalled;
   // The end plug-in has not been added, and the applicable channel is prompted.
+  // Only show confirm dialog if connectors exist (channel restrictions)
   const showAddConfirm =
     isLocalPlugin &&
+    connectors &&
+    connectors.length > 0 &&
     ((!isFromWorkflow && !isAdded) || (isFromWorkflow && count === 0));
   return (
     <>

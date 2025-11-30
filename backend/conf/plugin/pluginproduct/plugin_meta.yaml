@@ -711,7 +711,7 @@
       type: oauth
       sub_type: authorization_code
       # client_id and client_secret apply to https://open.larkoffice.com/app
-      payload: '{"client_id":"","client_secret":"","client_url":"https://accounts.feishu.cn/open-apis/authen/v1/authorize","scope":"drive:drive offline_access","authorization_url":"https://open.larkoffice.com/open-apis/authen/v2/oauth/token","authorization_content_type":"application/json"}'
+      payload: '{"client_id":"cli_a8f625e5c4f8500d","client_secret":"z7Uk4fVObLttVAiv07O6YgKUKdC4PAoE","client_url":"https://accounts.feishu.cn/open-apis/authen/v1/authorize","scope":"drive:drive offline_access","authorization_url":"https://open.larkoffice.com/open-apis/authen/v2/oauth/token","authorization_content_type":"application/json"}'
     logo_url: official_plugin_icon/plugin_lark_docx.png
     api:
       type: openapi
@@ -775,7 +775,7 @@
       type: oauth
       sub_type: authorization_code
       # client_id and client_secret apply to https://open.larkoffice.com/app
-      payload: '{"client_id":"","client_secret":"","client_url":"https://accounts.feishu.cn/open-apis/authen/v1/authorize","scope":"wiki:wiki offline_access","authorization_url":"https://open.larkoffice.com/open-apis/authen/v2/oauth/token","authorization_content_type":"application/json"}'
+      payload: '{"client_id":"cli_a8f625e5c4f8500d","client_secret":"z7Uk4fVObLttVAiv07O6YgKUKdC4PAoE","client_url":"https://accounts.feishu.cn/open-apis/authen/v1/authorize","scope":"wiki:wiki offline_access","authorization_url":"https://open.larkoffice.com/open-apis/authen/v2/oauth/token","authorization_content_type":"application/json"}'
     logo_url: official_plugin_icon/plugin_lark_wiki.png
     api:
       type: openapi
@@ -914,7 +914,7 @@
   plugin_type: 1
   manifest:
     schema_version: v1
-    name_for_model: pairat_remote_exec
+    name_for_model: pairat_remote_exec_yaml
     name_for_human: Pairat Remote Exec
     description_for_model: 通过 MCP 协议在远程机器上执行命令或脚本，支持机器健康检查
     description_for_human: 远程命令执行工具，基于 MCP 协议实现安全的远程操作

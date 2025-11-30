@@ -71,12 +71,14 @@ func New(ctx context.Context, s *schema.NodeSchema,
 		}
 
 		// build the actual InvokableNode, etc.
+		// 构建实际的 InvokableNode 等
 		n, err := nb.Build(ctx, s, opts...)
 		if err != nil {
 			return nil, err
 		}
 
 		// wrap InvokableNode, etc. within NodeRunner, converting to eino's Lambda
+		// 将节点包装成 Lambda（Eino 统一接口）
 		return toNode(s, n), nil
 	}
 

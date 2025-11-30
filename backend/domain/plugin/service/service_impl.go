@@ -21,6 +21,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/coze-dev/coze-studio/backend/domain/plugin/internal/dal"
 	"github.com/coze-dev/coze-studio/backend/domain/plugin/repository"
 	"github.com/coze-dev/coze-studio/backend/infra/idgen"
 	"github.com/coze-dev/coze-studio/backend/infra/storage"
@@ -37,12 +38,16 @@ type Components struct {
 }
 
 func NewService(components *Components) PluginService {
+	// Create MCP plugin DAO internally (can access internal/dal from service layer)
+	mcpPluginDAO := dal.NewMcpPluginDAO(components.DB, components.IDGen)
+
 	impl := &pluginServiceImpl{
-		db:         components.DB,
-		oss:        components.OSS,
-		pluginRepo: components.PluginRepo,
-		toolRepo:   components.ToolRepo,
-		oauthRepo:  components.OAuthRepo,
+		db:           components.DB,
+		oss:          components.OSS,
+		pluginRepo:   components.PluginRepo,
+		toolRepo:     components.ToolRepo,
+		oauthRepo:    components.OAuthRepo,
+		mcpPluginDAO: mcpPluginDAO,
 	}
 
 	initOnce.Do(func() {
@@ -56,9 +61,10 @@ func NewService(components *Components) PluginService {
 }
 
 type pluginServiceImpl struct {
-	db         *gorm.DB
-	oss        storage.Storage
-	pluginRepo repository.PluginRepository
-	toolRepo   repository.ToolRepository
-	oauthRepo  repository.OAuthRepository
+	db           *gorm.DB
+	oss          storage.Storage
+	pluginRepo   repository.PluginRepository
+	toolRepo     repository.ToolRepository
+	oauthRepo    repository.OAuthRepository
+	mcpPluginDAO *dal.McpPluginDAO
 }

@@ -336,6 +336,7 @@ func (p *pluginInvokeTool) Info(ctx context.Context) (_ *schema.ToolInfo, err er
 }
 
 func (p *pluginInvokeTool) PluginInvoke(ctx context.Context, argumentsInJSON string, cfg workflowModel.ExecuteConfig) (string, error) {
+	// 1. 构建执行请求
 	req := &model.ExecuteToolRequest{
 		UserID:          conv.Int64ToStr(cfg.Operator),
 		PluginID:        p.pluginEntity.PluginID,
@@ -348,17 +349,18 @@ func (p *pluginInvokeTool) PluginInvoke(ctx context.Context, argumentsInJSON str
 	execOpts := []model.ExecuteToolOpt{
 		model.WithInvalidRespProcessStrategy(consts.InvalidResponseProcessStrategyOfReturnDefault),
 	}
-
+	// 2. 构建执行选项
 	if p.pluginEntity.PluginVersion != nil {
 		execOpts = append(execOpts, model.WithToolVersion(*p.pluginEntity.PluginVersion))
 	}
-
+	// 3. 如果使用了自定义 Operation（Agent 自定义配置），使用自定义的
 	if p.toolOperation != nil {
 		execOpts = append(execOpts, model.WithOpenapiOperation(model.NewOpenapi3Operation(p.toolOperation)))
 	}
-
+	// 4. 执行工具
 	r, err := crossplugin.DefaultSVC().ExecuteTool(ctx, req, execOpts...)
 	if err != nil {
+		// 5. 处理中断错误（OAuth 授权）
 		if extra, ok := compose.IsInterruptRerunError(err); ok {
 			pluginTIE, ok := extra.(*model.ToolInterruptEvent)
 			if !ok {
@@ -373,7 +375,7 @@ func (p *pluginInvokeTool) PluginInvoke(ctx context.Context, argumentsInJSON str
 				return "", vo.WrapError(errno.ErrPluginAPIErr,
 					fmt.Errorf("unsupported interrupt event type: %s", pluginTIE.Event))
 			}
-
+			// 创建中断事件
 			id, eErr := workflow.GetRepository().GenID(ctx)
 			if eErr != nil {
 				return "", vo.WrapError(errno.ErrIDGenError, eErr)
@@ -390,7 +392,7 @@ func (p *pluginInvokeTool) PluginInvoke(ctx context.Context, argumentsInJSON str
 				ToolName:       p.toolInfo.GetName(),
 				InterruptEvent: ie,
 			}
-
+			// 返回授权错误
 			// temporarily replace interrupt with real error, until frontend can handle plugin oauth interrupt
 			_ = tie
 			interruptData := ie.InterruptData
@@ -398,6 +400,7 @@ func (p *pluginInvokeTool) PluginInvoke(ctx context.Context, argumentsInJSON str
 		}
 		return "", err
 	}
+	// 6. 返回裁剪后的响应（JSON 字符串，供 LLM 继续推理）
 	return r.TrimmedResp, nil
 }
 

@@ -37,6 +37,17 @@ import (
 // mcpToolLoader handles loading tools from MCP servers
 type mcpToolLoader struct{}
 
+// LoadMCPToolsForPlugin is a public wrapper to load MCP tools
+func LoadMCPToolsForPlugin(
+	ctx context.Context,
+	pluginID int64,
+	pluginVersion string,
+	mcpConfig *mcp.Config,
+) ([]*ToolInfo, error) {
+	loader := &mcpToolLoader{}
+	return loader.LoadMCPTools(ctx, pluginID, pluginVersion, mcpConfig)
+}
+
 // LoadMCPTools loads tools from MCP server and converts them to ToolInfo
 func (l *mcpToolLoader) LoadMCPTools(
 	ctx context.Context,

@@ -54,7 +54,7 @@ func (i *impl) SyncExecute(ctx context.Context, config workflowModel.ExecuteConf
 		err      error
 		wfEntity *entity.Workflow
 	)
-
+	// 1. 获取 Workflow 实体（从数据库或缓存）
 	wfEntity, err = i.Get(ctx, &vo.GetPolicy{
 		ID:       config.ID,
 		QType:    config.From,
@@ -75,12 +75,12 @@ func (i *impl) SyncExecute(ctx context.Context, config workflowModel.ExecuteConf
 			return nil, "", err
 		}
 	}
-
+	// 2. 解析 Canvas JSON 为 Canvas 对象
 	c := &vo.Canvas{}
 	if err = sonic.UnmarshalString(wfEntity.Canvas, c); err != nil {
 		return nil, "", fmt.Errorf("failed to unmarshal canvas: %w", err)
 	}
-
+	// 3. 将 Canvas 转换为 WorkflowSchema（节点和连接的抽象）
 	workflowSC, err := adaptor.CanvasToWorkflowSchema(ctx, c)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to convert canvas to workflow schema: %w", err)
@@ -89,6 +89,7 @@ func (i *impl) SyncExecute(ctx context.Context, config workflowModel.ExecuteConf
 	config.InputFileFields = slices.ToMap(workflowSC.GetAllNodesInputFileFields(ctx), func(e *workflowModel.FileInfo) (string, *workflowModel.FileInfo) {
 		return e.FileURL, e
 	})
+	// 4. 创建 Workflow 对象（编译节点为可执行的 Runner）
 	var wfOpts []compose.WorkflowOption
 	wfOpts = append(wfOpts, compose.WithIDAsName(wfEntity.ID))
 	if s := execute.GetStaticConfig(); s != nil && s.MaxNodeCountPerWorkflow > 0 {
@@ -103,7 +104,7 @@ func (i *impl) SyncExecute(ctx context.Context, config workflowModel.ExecuteConf
 	if wfEntity.AppID != nil && config.AppID == nil {
 		config.AppID = wfEntity.AppID
 	}
-
+	// 5. 转换输入参数（类型检查和转换）
 	var cOpts []nodes.ConvertOption
 	inputFileFields := make(map[string]*workflowModel.FileInfo)
 	cOpts = append(cOpts, nodes.WithCollectFileFields(inputFileFields), nodes.WithNotNeedTrimQueryFileName(true))
@@ -121,7 +122,7 @@ func (i *impl) SyncExecute(ctx context.Context, config workflowModel.ExecuteConf
 	for k, v := range inputFileFields {
 		config.InputFileFields[k] = v
 	}
-
+	// 6. 准备执行上下文（生成执行 ID、事件通道等）
 	inStr, err := sonic.MarshalString(input)
 	if err != nil {
 		return nil, "", err
@@ -134,9 +135,10 @@ func (i *impl) SyncExecute(ctx context.Context, config workflowModel.ExecuteConf
 	}
 
 	startTime := time.Now()
-
+	// 7. 同步执行 Workflow
 	out, err := wf.SyncRun(cancelCtx, convertedInput, opts...)
 	if err != nil {
+		// 处理错误（非中断错误）
 		if _, ok := einoCompose.ExtractInterruptInfo(err); !ok {
 			var wfe vo.WorkflowError
 			if errors.As(err, &wfe) {
@@ -147,10 +149,11 @@ func (i *impl) SyncExecute(ctx context.Context, config workflowModel.ExecuteConf
 		}
 	}
 
+	// 8. 等待最后一个事件（成功/失败/中断）
 	lastEvent := <-lastEventChan
 
 	updateTime := time.Now()
-
+	// 9. 构建执行结果
 	var outStr string
 	if wf.TerminatePlan() == vo.ReturnVariables {
 		outStr, err = sonic.MarshalString(out)
@@ -177,7 +180,7 @@ func (i *impl) SyncExecute(ctx context.Context, config workflowModel.ExecuteConf
 	if lastEvent.Err != nil {
 		failReason = ptr.Of(lastEvent.Err.Error())
 	}
-
+	// 10. 返回执行结果
 	return &entity.WorkflowExecution{
 		ID:            executeID,
 		WorkflowID:    wfEntity.ID,

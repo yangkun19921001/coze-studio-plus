@@ -114,7 +114,6 @@ func NewWorkflow(ctx context.Context, sc *schema.WorkflowSchema, opts ...Workflo
 	wf.output = sc.GetNode(entity.ExitNodeKey).InputTypes
 
 	// 添加所有复合节点（包含子工作流的节点）
-	// 添加所有复合节点（包含子工作流的节点）
 	compositeNodes := sc.GetCompositeNodes()
 	processedNodeKey := make(map[vo.NodeKey]struct{})
 	for i := range compositeNodes {
@@ -128,7 +127,7 @@ func NewWorkflow(ctx context.Context, sc *schema.WorkflowSchema, opts ...Workflo
 			processedNodeKey[child.Key] = struct{}{}
 		}
 	}
-	// 添加所有普通节点
+	// 添加所有普通节点（包括 LLM 节点、插件节点等）
 	for _, ns := range sc.Nodes {
 		if _, ok := processedNodeKey[ns.Key]; !ok {
 			if err := wf.AddNode(ctx, ns); err != nil {

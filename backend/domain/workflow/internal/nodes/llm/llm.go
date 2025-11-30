@@ -397,7 +397,7 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 		knowledgeRecallConfig *KnowledgeRecallConfig
 		llmRef                *LLM // Reference for callbacks to access realtimeWriter
 	)
-
+	// 1. 构建 ChatModel
 	chatModel, info, err = modelbuilder.BuildModelByID(ctx, c.LLMParams.ModelType, c.LLMParams.ToModelBuilderLLMParams())
 	if err != nil {
 		return nil, err
@@ -420,6 +420,7 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 		modelWithInfo = NewModelWithFallback(chatModel, fallbackM, info, fallbackI)
 	}
 
+	// 2. 处理 Function Calling 参数
 	fcParams := c.FCParam
 	logs.Infof("🔧 fcParams == nil? %v\n", fcParams == nil)
 	if fcParams != nil {
@@ -443,7 +444,6 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 				if err != nil {
 					return nil, fmt.Errorf("invalid workflow id: %s", wfIDStr)
 				}
-
 				workflowToolConfig := vo.WorkflowToolConfig{}
 				if wf.FCSetting != nil {
 					workflowToolConfig.InputParametersConfig = wf.FCSetting.RequestParameters
@@ -480,6 +480,7 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 		}
 
 		if fcParams.PluginFCParam != nil {
+			// 2.1 构建插件工具请求
 			pluginToolsInvokableReq := make(map[int64]*wrapPlugin.ToolsInvokableRequest)
 			for _, p := range fcParams.PluginFCParam.PluginList {
 				pid, err := strconv.ParseInt(p.PluginID, 10, 64)
@@ -525,6 +526,7 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 					pluginToolsInvokableReq[pid] = pluginToolsInfoRequest
 				}
 			}
+			// 2.2 获取插件工具列表（转换为 InvokableTool）
 			inInvokableTools := make([]tool.BaseTool, 0, len(fcParams.PluginFCParam.PluginList))
 			for _, req := range pluginToolsInvokableReq {
 				toolMap, err := wrapPlugin.GetPluginInvokableTools(ctx, req)
@@ -588,7 +590,7 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 	} else {
 		logs.Infof("❌ fcParams is nil!")
 	}
-
+	// 3. 构建 LLM Graph（包含工具）
 	g := compose.NewGraph[map[string]any, map[string]any](
 		compose.WithGenLocalState(func(ctx context.Context) (state llmState) {
 			return llmState{}
@@ -899,7 +901,7 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 
 							if frame.Message.Content != "" {
 								allContent = append(allContent, frame.Message.Content)
-								logs.Infof("NewHandlerHelper ChatModel Stream Message: %s", frame.Message.Content)
+								// logs.Infof("NewHandlerHelper ChatModel Stream Message: %s", frame.Message.Content)
 
 								// 🚀 Send realtime message to Workflow StreamContainer
 								if llmRef != nil && llmRef.realtimeWriter != nil && exeCtx != nil {
@@ -1430,16 +1432,17 @@ func (l *LLM) handleInterrupt(ctx context.Context, err error, resumingEvent *ent
 }
 
 func (l *LLM) Invoke(ctx context.Context, in map[string]any, opts ...nodes.NodeOption) (out map[string]any, err error) {
+	// 1. 准备执行选项（包括工具回调处理器）
 	composeOpts, resumingEvent, err := l.prepare(ctx, in, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	// Add tool callback handler if available
+	// 2. 添加工具回调处理器（用于实时流式输出）
 	if l.toolCallbackHandler != nil {
 		composeOpts = append(composeOpts, compose.WithCallbacks(l.toolCallbackHandler))
 	}
-
+	// 3. 调用 LLM Graph（如果 LLM 生成 Function Call，会自动调用工具）
 	out, err = l.r.Invoke(ctx, in, composeOpts...)
 	if err != nil {
 		err = l.handleInterrupt(ctx, err, resumingEvent)

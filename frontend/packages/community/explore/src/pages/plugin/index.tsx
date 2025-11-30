@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import { useState } from 'react';
+
 import { useRequest } from 'ahooks';
 import { explore } from '@coze-studio/api-schema';
 import {
@@ -33,6 +35,7 @@ import {
   PluginCateTab,
   type TaskListServiceRes,
 } from '../../components/plugin-page-list';
+import { McpConfigModal } from './components/mcp-config-modal';
 
 const { TabPanel } = TabBar;
 
@@ -45,6 +48,7 @@ export const PluginPage = () => {
   const { node: usageInvokeModal, open: openUsageInvokeModal } = useUsageModal(
     {},
   );
+  const [showMcpConfigModal, setShowMcpConfigModal] = useState(false);
 
   const { data: enableSaaSPlugin } = useRequest(async () => {
     const res = await explore.PublicGetMarketPluginConfig({});
@@ -85,19 +89,30 @@ export const PluginPage = () => {
           用量查看
         </Button>
       ) : (
-        <Button
-          className="mx-[24px]"
-          color="primary"
-          icon={<IconCozDocument />}
-          onClick={() => {
-            window.open(
-              'https://github.com/coze-dev/coze-studio/wiki/4.-%E6%8F%92%E4%BB%B6%E9%85%8D%E7%BD%AE',
-              '_blank',
-            );
-          }}
-        >
-          配置 coze.cn 插件
-        </Button>
+        <>
+          <Button
+            className="mx-[24px]"
+            color="primary"
+            onClick={() => {
+              setShowMcpConfigModal(true);
+            }}
+          >
+            配置MCP工具
+          </Button>
+          <Button
+            className="mx-[24px]"
+            color="primary"
+            icon={<IconCozDocument />}
+            onClick={() => {
+              window.open(
+                'https://github.com/coze-dev/coze-studio/wiki/4.-%E6%8F%92%E4%BB%B6%E9%85%8D%E7%BD%AE',
+                '_blank',
+              );
+            }}
+          >
+            配置 coze.cn 插件
+          </Button>
+        </>
       )}
     </div>
   );
@@ -125,6 +140,10 @@ export const PluginPage = () => {
         renderCardSkeleton={() => <PluginCardSkeleton />}
       />
       {usageInvokeModal}
+      <McpConfigModal
+        visible={showMcpConfigModal}
+        onClose={() => setShowMcpConfigModal(false)}
+      />
     </>
   );
 };

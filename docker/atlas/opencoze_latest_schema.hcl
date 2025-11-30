@@ -2701,6 +2701,68 @@ table "plugin_oauth_auth" {
     columns = [column.user_id, column.plugin_id, column.is_draft]
   }
 }
+table "mcp_plugin" {
+  schema  = schema.opencoze
+  comment = "MCP Plugin Configuration"
+  column "id" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "Primary Key ID"
+  }
+  column "name" {
+    null    = false
+    type    = varchar(255)
+    default = ""
+    comment = "MCP Server Name"
+  }
+  column "plugin_id" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "Plugin ID from plugin_meta.yaml, 0 if user-created"
+  }
+  column "user_id" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "User ID, 0 for system plugins"
+  }
+  column "mcp_config" {
+    null    = false
+    type    = json
+    comment = "MCP Configuration (JSON format, compatible with SSE and stdio)"
+  }
+  column "created_at" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "Create Time in Milliseconds"
+  }
+  column "updated_at" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "Update Time in Milliseconds"
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  index "idx_plugin_id" {
+    columns = [column.plugin_id]
+  }
+  index "idx_user_id" {
+    columns = [column.user_id]
+  }
+  index "idx_name" {
+    columns = [column.name]
+  }
+}
 table "plugin_version" {
   schema  = schema.opencoze
   comment = "Plugin Version"

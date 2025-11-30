@@ -36,6 +36,7 @@ const (
 
 // Config contains configuration for MCP client
 type Config struct {
+	ServerName    string        `json:"server_name"`
 	TransportType TransportType `json:"transport_type"`
 	StdioConfig   *StdioConfig  `json:"stdio_config,omitempty"`
 	SSEConfig     *SSEConfig    `json:"sse_config,omitempty"`

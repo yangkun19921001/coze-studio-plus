@@ -18,20 +18,27 @@ package plugin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
+	"sync"
 
 	"github.com/coze-dev/coze-studio/backend/api/model/app/bot_common"
 	"github.com/coze-dev/coze-studio/backend/api/model/marketplace/product_common"
 	pluginAPI "github.com/coze-dev/coze-studio/backend/api/model/plugin_develop"
 	common "github.com/coze-dev/coze-studio/backend/api/model/plugin_develop/common"
+	"github.com/coze-dev/coze-studio/backend/crossdomain/plugin/consts"
 	"github.com/coze-dev/coze-studio/backend/crossdomain/plugin/convert"
+	"github.com/coze-dev/coze-studio/backend/crossdomain/plugin/model"
+	"github.com/coze-dev/coze-studio/backend/domain/plugin/conf"
 	"github.com/coze-dev/coze-studio/backend/domain/plugin/dto"
 	"github.com/coze-dev/coze-studio/backend/domain/plugin/entity"
+	"github.com/coze-dev/coze-studio/backend/domain/plugin/service"
 	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/ptr"
 	"github.com/coze-dev/coze-studio/backend/pkg/logs"
+	"github.com/coze-dev/coze-studio/backend/pkg/mcp"
 )
 
 func (p *PluginApplicationService) GetPlaygroundPluginList(ctx context.Context, req *pluginAPI.GetPlaygroundPluginListRequest) (resp *pluginAPI.GetPlaygroundPluginListResponse, err error) {
@@ -77,6 +84,21 @@ func (p *PluginApplicationService) GetPlaygroundPluginList(ctx context.Context, 
 		}
 
 	} else {
+		// Get local plugins and MCP plugins concurrently
+		var mcpPlugins []*entity.PluginInfo
+		var mcpPluginsErr error
+		var wg sync.WaitGroup
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			mcpPlugins, mcpPluginsErr = p.getMcpPluginsAsEntity(ctx)
+			if mcpPluginsErr != nil {
+				logs.CtxErrorf(ctx, "[MCP] Failed to get MCP plugins: %v", mcpPluginsErr)
+			}
+		}()
+
+		// Process local plugins
 		for _, pl := range plugins {
 			tools, err := p.toolRepo.GetPluginAllOnlineTools(ctx, pl.ID)
 			if err != nil {
@@ -89,6 +111,30 @@ func (p *PluginApplicationService) GetPlaygroundPluginList(ctx context.Context, 
 			}
 
 			pluginList = append(pluginList, pluginInfo)
+		}
+
+		// Wait for MCP plugins
+		wg.Wait()
+
+		// Process MCP plugins
+		if mcpPluginsErr == nil {
+			for _, mcpPl := range mcpPlugins {
+				// Get tools for MCP plugin (from conf cache or load from MCP server)
+				tools, err := p.getMcpPluginTools(ctx, mcpPl)
+				if err != nil {
+					logs.CtxErrorf(ctx, "[MCP] Failed to get tools for MCP plugin %d: %v", mcpPl.ID, err)
+					continue
+				}
+
+				pluginInfo, err := p.toPluginInfoForPlayground(ctx, mcpPl, tools)
+				if err != nil {
+					logs.CtxErrorf(ctx, "[MCP] Failed to convert MCP plugin %d: %v", mcpPl.ID, err)
+					continue
+				}
+
+				pluginList = append(pluginList, pluginInfo)
+				total++
+			}
 		}
 	}
 
@@ -195,7 +241,10 @@ func (p *PluginApplicationService) toPluginInfoForPlayground(ctx context.Context
 	}
 
 	var creator *common.Creator
-	if pl.Source != ptr.Of(bot_common.PluginFrom_FromSaas) {
+	// Skip creator for MCP plugins (they are system/official plugins without developers)
+	// Also skip if DeveloperID is 0 (invalid user ID)
+	isMcpPlugin := pl.Manifest != nil && pl.Manifest.API.Type == consts.PluginTypeOfMCP
+	if pl.Source != ptr.Of(bot_common.PluginFrom_FromSaas) && !isMcpPlugin && pl.DeveloperID > 0 {
 		userInfo, err := p.userSVC.GetUserInfo(ctx, pl.DeveloperID)
 		if err != nil {
 			logs.CtxErrorf(ctx, "get user info failed, err=%v", err)
@@ -243,4 +292,140 @@ func (p *PluginApplicationService) toPluginInfoForPlayground(ctx context.Context
 	}
 
 	return pluginInfo, nil
+}
+
+// getMcpPluginsAsEntity gets MCP plugins from database and converts them to entity.PluginInfo
+func (p *PluginApplicationService) getMcpPluginsAsEntity(ctx context.Context) ([]*entity.PluginInfo, error) {
+	// Get all MCP plugins from database via service layer
+	listReq := &dto.ListMcpPluginsRequest{
+		Page:     1,
+		PageSize: 1000, // Get all
+	}
+	listResp, err := p.DomainSVC.ListMcpPlugins(ctx, listReq)
+	if err != nil {
+		return nil, errorx.Wrapf(err, "failed to get MCP plugins from database")
+	}
+
+	mcpPlugins := listResp.Plugins
+
+	plugins := make([]*entity.PluginInfo, 0, len(mcpPlugins))
+	for _, mcpPlugin := range mcpPlugins {
+		// Skip plugins from plugin_meta.yaml (they're already in local plugins)
+		if mcpPlugin.PluginID > 0 {
+			continue
+		}
+
+		// Convert cursor format to internal format
+		internalConfigs, err := service.ConvertCursorMcpConfigToInternal(mcpPlugin.McpConfig)
+		if err != nil {
+			logs.CtxErrorf(ctx, "[MCP] Failed to convert config for plugin %d: %v", mcpPlugin.ID, err)
+			continue
+		}
+
+		if len(internalConfigs) == 0 {
+			continue
+		}
+
+		// Create PluginInfo from MCP plugin
+		pluginInfo := &entity.PluginInfo{
+			PluginInfo: &model.PluginInfo{
+				ID:         mcpPlugin.ID,
+				PluginType: common.PluginType_LOCAL,
+				Version:    ptr.Of("v1.0.0"),
+				IconURI:    ptr.Of("official_plugin_icon/plugin_mcp.png"),
+				ServerURL:  ptr.Of("mcp://"),
+				Manifest: &model.PluginManifest{
+					SchemaVersion:       "v1",
+					NameForModel:        mcpPlugin.Name,
+					NameForHuman:        mcpPlugin.Name,
+					DescriptionForModel: fmt.Sprintf("MCP plugin: %s", mcpPlugin.Name),
+					DescriptionForHuman: fmt.Sprintf("MCP plugin: %s", mcpPlugin.Name),
+					LogoURL:             "official_plugin_icon/plugin_mcp.png",
+					Auth: &model.AuthV2{
+						Type: consts.AuthzTypeOfNone,
+					},
+					API: model.APIDesc{
+						Type: consts.PluginTypeOfMCP,
+						Extensions: map[string]interface{}{
+							"mcp_config": internalConfigs[0],
+						},
+					},
+				},
+			},
+		}
+
+		plugins = append(plugins, pluginInfo)
+	}
+
+	return plugins, nil
+}
+
+// getMcpPluginTools gets tools for an MCP plugin
+func (p *PluginApplicationService) getMcpPluginTools(ctx context.Context, plugin *entity.PluginInfo) ([]*entity.ToolInfo, error) {
+	if plugin.Manifest == nil {
+		return nil, fmt.Errorf("invalid plugin manifest")
+	}
+
+	// Parse MCP config
+	mcpConfigData, ok := plugin.Manifest.API.Extensions["mcp_config"]
+	if !ok {
+		return nil, fmt.Errorf("mcp_config not found")
+	}
+
+	configJSON, err := json.Marshal(mcpConfigData)
+	if err != nil {
+		return nil, fmt.Errorf("marshal mcp_config failed: %w", err)
+	}
+
+	var mcpConfig mcp.Config
+	if err := json.Unmarshal(configJSON, &mcpConfig); err != nil {
+		return nil, fmt.Errorf("unmarshal mcp_config failed: %w", err)
+	}
+
+	// Try to get tools from plugin products cache first
+	pluginProducts := conf.GetAllPluginProducts()
+	for _, pluginProduct := range pluginProducts {
+		if pluginProduct.Info != nil && pluginProduct.Info.ID == plugin.ID {
+			// Get tools from cache
+			toolInfos := make([]*entity.ToolInfo, 0, len(pluginProduct.ToolIDs))
+			for _, toolID := range pluginProduct.ToolIDs {
+				toolProduct, exists := conf.GetToolProduct(toolID)
+				if exists && toolProduct != nil && toolProduct.Info != nil {
+					toolInfos = append(toolInfos, toolProduct.Info)
+				}
+			}
+			return toolInfos, nil
+		}
+	}
+
+	// If not in cache, load from MCP server
+	// Create a loader instance (using the internal type)
+	loader := &mcpToolLoaderWrapper{}
+	toolInfos, err := loader.LoadMCPTools(ctx, plugin.ID, ptr.FromOrDefault(plugin.Version, "v1.0.0"), &mcpConfig)
+	if err != nil {
+		return nil, errorx.Wrapf(err, "failed to load MCP tools")
+	}
+
+	// Convert to entity.ToolInfo
+	tools := make([]*entity.ToolInfo, 0, len(toolInfos))
+	for _, toolInfo := range toolInfos {
+		tools = append(tools, toolInfo.Info)
+	}
+
+	return tools, nil
+}
+
+// mcpToolLoaderWrapper wraps the internal mcpToolLoader to make it accessible
+type mcpToolLoaderWrapper struct{}
+
+func (l *mcpToolLoaderWrapper) LoadMCPTools(
+	ctx context.Context,
+	pluginID int64,
+	pluginVersion string,
+	mcpConfig *mcp.Config,
+) ([]*conf.ToolInfo, error) {
+	// Use the internal loader from conf package
+	// We need to access the unexported type, so we'll use a workaround
+	// by calling through a helper function in conf package
+	return conf.LoadMCPToolsForPlugin(ctx, pluginID, pluginVersion, mcpConfig)
 }

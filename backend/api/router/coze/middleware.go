@@ -1659,3 +1659,28 @@ func _listchatmessageapiMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _createmcppluginMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _updatemcppluginMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listmcppluginsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getmcppluginMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _deletemcppluginMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

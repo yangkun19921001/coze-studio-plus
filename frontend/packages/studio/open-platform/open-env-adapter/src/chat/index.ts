@@ -30,10 +30,12 @@ export const openApiCdnUrlByRegion = IS_OVERSEA
 
 // The user needs to modify the baseurl here to open the domain name configuration of the API interface
 // 自动使用当前页面的域名，如果不是浏览器环境则使用默认 API 地址
+// export const openApiHostByRegion =
+//   typeof location !== 'undefined'
+//     ? location.origin
+//     : 'https://iaas-ops-agent.pyinfra.work';
 export const openApiHostByRegion =
-  typeof location !== 'undefined'
-    ? location.origin
-    : 'https://iaas-ops-agent.pyinfra.work';
+  typeof location !== 'undefined' ? location.origin : 'https://api.xxx.com';
 export const openApiHostByRegionWithToken = openApiHostByRegion;
 
 export const openSdkPrefix = '';

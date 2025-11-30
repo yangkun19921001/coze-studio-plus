@@ -18,6 +18,8 @@ package plugin
 
 import (
 	"context"
+	"fmt"
+	"hash/fnv"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +34,7 @@ import (
 	"github.com/coze-dev/coze-studio/backend/application/base/ctxutil"
 	"github.com/coze-dev/coze-studio/backend/crossdomain/plugin/consts"
 	"github.com/coze-dev/coze-studio/backend/crossdomain/plugin/convert/api"
+	"github.com/coze-dev/coze-studio/backend/domain/plugin/conf"
 	"github.com/coze-dev/coze-studio/backend/domain/plugin/dto"
 	"github.com/coze-dev/coze-studio/backend/domain/plugin/entity"
 	"github.com/coze-dev/coze-studio/backend/domain/plugin/repository"
@@ -122,6 +125,13 @@ func (p *PluginApplicationService) UnlockPluginEdit(ctx context.Context, req *pl
 }
 
 func (p *PluginApplicationService) PublicGetProductList(ctx context.Context, req *productAPI.GetProductListRequest) (resp *productAPI.GetProductListResponse, err error) {
+	//首先处理  mcp 插件
+	mcpConverter := NewMcpProductConverter(p.DomainSVC, p.oss)
+	if err := p.addMcpPluginsToCache(ctx, mcpConverter); err != nil {
+		logs.CtxWarnf(ctx, "[MCP] Failed to add MCP plugins to cache: %v", err)
+		// Continue even if cache update fails
+	}
+
 	res, err := p.DomainSVC.ListPluginProducts(ctx, &dto.ListPluginProductsRequest{})
 	if err != nil {
 		return nil, errorx.Wrapf(err, "ListPluginProducts failed")
@@ -140,6 +150,35 @@ func (p *PluginApplicationService) PublicGetProductList(ctx context.Context, req
 		}
 
 		products = append(products, pi)
+	}
+
+	// mcpProducts, err := mcpConverter.GetMcpPluginsAsProducts(ctx)
+	// if err != nil {
+	// 	logs.CtxWarnf(ctx, "[MCP] Failed to get MCP plugins as products: %v", err)
+	// 	// Continue even if MCP plugins loading fails
+	// } else {
+	// 	products = append(products, mcpProducts...)
+	// 	// Add MCP plugins to in-memory cache so they can be found by GetPlaygroundPluginList
+	// 	if err := p.addMcpPluginsToCache(ctx, mcpConverter); err != nil {
+	// 		logs.CtxWarnf(ctx, "[MCP] Failed to add MCP plugins to cache: %v", err)
+	// 		// Continue even if cache update fails
+	// 	}
+	// }
+
+	//对比 pairat-remote-exec vs "Pairat Remote Exec" 数据，输出 log
+	for _, product := range products {
+		if product.MetaInfo.Name == "Pairat Remote Exec" {
+			logs.CtxInfof(ctx, "Pairat Remote Exec: metaName=%s, productName=%s, entityID=%d, pluginID=%d, pluginType=%s, tools=%d, jumpSaasURL=%s, isOfficial=%t, id=%d", product.MetaInfo.Name, product.MetaInfo.Name, product.MetaInfo.EntityID, product.MetaInfo.ID, product.PluginExtra.PluginType.String(), len(product.PluginExtra.Tools), product.PluginExtra.JumpSaasURL, product.MetaInfo.IsOfficial, product.MetaInfo.ID)
+			for _, tool := range product.PluginExtra.Tools {
+				logs.CtxInfof(ctx, "tool: name=%s, description=%s, parameters=%v", tool.Name, tool.Description, tool.Parameters)
+			}
+		}
+		if product.MetaInfo.Name == "pairat-remote-exec" {
+			logs.CtxInfof(ctx, "pairat-remote-exec: metaName=%s, productName=%s, entityID=%d, pluginID=%d, pluginType=%s, tools=%d, jumpSaasURL=%s, isOfficial=%t", product.MetaInfo.Name, product.MetaInfo.Name, product.MetaInfo.EntityID, product.MetaInfo.ID, product.PluginExtra.PluginType.String(), len(product.PluginExtra.Tools), product.PluginExtra.JumpSaasURL, product.MetaInfo.IsOfficial)
+			for _, tool := range product.PluginExtra.Tools {
+				logs.CtxInfof(ctx, "tool: name=%s, description=%s, parameters=%v", tool.Name, tool.Description, tool.Parameters)
+			}
+		}
 	}
 
 	if req.GetKeyword() != "" {
@@ -651,4 +690,111 @@ func (p *PluginApplicationService) GetMarketPluginConfig(ctx context.Context, re
 	}
 
 	return resp, nil
+}
+
+// CreateMcpPlugin creates a new MCP plugin
+func (p *PluginApplicationService) CreateMcpPlugin(ctx context.Context, req *dto.CreateMcpPluginRequest) (id int64, err error) {
+	return p.DomainSVC.CreateMcpPlugin(ctx, req)
+}
+
+// UpdateMcpPlugin updates an existing MCP plugin
+func (p *PluginApplicationService) UpdateMcpPlugin(ctx context.Context, req *dto.UpdateMcpPluginRequest) (err error) {
+	return p.DomainSVC.UpdateMcpPlugin(ctx, req)
+}
+
+// ListMcpPlugins lists MCP plugins with pagination
+func (p *PluginApplicationService) ListMcpPlugins(ctx context.Context, req *dto.ListMcpPluginsRequest) (resp *dto.ListMcpPluginsResponse, err error) {
+	return p.DomainSVC.ListMcpPlugins(ctx, req)
+}
+
+// GetMcpPlugin gets an MCP plugin by user_id
+func (p *PluginApplicationService) GetMcpPlugin(ctx context.Context, userID int64) (plugin *dto.McpPluginInfo, err error) {
+	return p.DomainSVC.GetMcpPlugin(ctx, userID)
+}
+
+// DeleteMcpPlugin deletes an MCP plugin
+func (p *PluginApplicationService) DeleteMcpPlugin(ctx context.Context, id int64) (err error) {
+	return p.DomainSVC.DeleteMcpPlugin(ctx, id)
+}
+
+// string encoding to int64
+func stringHashToInt64(s string) int64 {
+	hash := fnv.New64a()
+	hash.Write([]byte(s))
+	return int64(hash.Sum64())
+}
+
+// addMcpPluginsToCache adds user-created MCP plugins to the in-memory cache
+// so they can be found by GetPlaygroundPluginList when adding tools
+func (p *PluginApplicationService) addMcpPluginsToCache(ctx context.Context, mcpConverter *McpProductConverter) error {
+	// Get all MCP plugins from database
+	listReq := &dto.ListMcpPluginsRequest{
+		Page:     1,
+		PageSize: 1000, // Get all user-created MCP plugins
+	}
+	listResp, err := p.DomainSVC.ListMcpPlugins(ctx, listReq)
+	if err != nil {
+		return fmt.Errorf("failed to get MCP plugins: %w", err)
+	}
+
+	for _, mcpPlugin := range listResp.Plugins {
+		// Skip plugins from plugin_meta.yaml (they're already in cache)
+		if mcpPlugin.PluginID > 0 {
+			continue
+		}
+
+		delPluginCount, delToolCount := conf.DeleteAllLocalPluginProducts()
+		logs.CtxInfof(ctx, "Deleted %d local plugin products, %d local tool products", delPluginCount, delToolCount)
+
+		// Convert cursor format to internal format
+		internalConfigs, err := service.ConvertCursorMcpConfigToInternal(mcpPlugin.McpConfig)
+		if err != nil {
+			logs.CtxWarnf(ctx, "[MCP] Failed to convert config for plugin %d: %v", mcpPlugin.ID, err)
+			continue
+		}
+
+		if len(internalConfigs) == 0 {
+			logs.CtxWarnf(ctx, "[MCP] No valid MCP config found for plugin %d", mcpPlugin.ID)
+			continue
+		}
+
+		// Collect all tools from all server configs
+		// Load directly from MCP server to avoid circular dependency with cache
+		for i, config := range internalConfigs {
+			allTools := make([]*entity.ToolInfo, 0)
+			toolInfos, err := conf.LoadMCPToolsForPlugin(ctx, mcpPlugin.ID, "v1.0.0", config)
+			if err != nil {
+				logs.CtxWarnf(ctx, "[MCP] Failed to load tools for plugin %d server %d: %v", mcpPlugin.ID, i, err)
+				continue
+			}
+			mcpPlugin.ID = stringHashToInt64(config.ServerName)
+
+			// Convert to entity.ToolInfo
+			for _, toolInfo := range toolInfos {
+				if toolInfo != nil && toolInfo.Info != nil {
+					toolInfo.Info.ID = stringHashToInt64(*toolInfo.Info.SubURL)
+					toolInfo.Info.PluginID = mcpPlugin.ID
+					allTools = append(allTools, toolInfo.Info)
+				}
+			}
+
+			if len(allTools) == 0 {
+				logs.CtxWarnf(ctx, "[MCP] No tools found for plugin %d, skipping cache", mcpPlugin.ID)
+				continue
+			}
+
+			// Build plugin info (use the first server config for manifest)
+			pluginEntity := mcpConverter.buildPluginEntityFromMcpPlugin(mcpPlugin, config, i)
+			pluginEntity.PluginInfo.ID = mcpPlugin.ID
+			// Add to cache
+			err = conf.AddLocalMcpPlugin(ctx, mcpPlugin.ID, pluginEntity.PluginInfo, allTools)
+			if err != nil {
+				logs.CtxWarnf(ctx, "[MCP] Failed to add plugin %d to cache: %v", mcpPlugin.ID, err)
+				continue
+			}
+		}
+
+	}
+
+	return nil
 }

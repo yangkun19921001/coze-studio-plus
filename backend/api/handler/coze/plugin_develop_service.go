@@ -21,14 +21,17 @@ package coze
 import (
 	"context"
 	"regexp"
+	"strconv"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 
 	"github.com/coze-dev/coze-studio/backend/api/model/plugin_develop"
 	common "github.com/coze-dev/coze-studio/backend/api/model/plugin_develop/common"
+	"github.com/coze-dev/coze-studio/backend/application/base/ctxutil"
 	"github.com/coze-dev/coze-studio/backend/application/plugin"
 	appworkflow "github.com/coze-dev/coze-studio/backend/application/workflow"
+	"github.com/coze-dev/coze-studio/backend/domain/plugin/dto"
 )
 
 // GetPlaygroundPluginList .
@@ -912,4 +915,147 @@ func GetQueriedOAuthPluginList(ctx context.Context, c *app.RequestContext) {
 	}
 
 	c.JSON(consts.StatusOK, resp)
+}
+
+// CreateMcpPlugin creates a new MCP plugin
+// @router /api/plugin_api/create_mcp_plugin [POST]
+func CreateMcpPlugin(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req dto.CreateMcpPluginRequest
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		invalidParamRequestResponse(c, err.Error())
+		return
+	}
+
+	if req.Name == "" {
+		invalidParamRequestResponse(c, "name is required")
+		return
+	}
+
+	id, err := plugin.PluginApplicationSVC.CreateMcpPlugin(ctx, &req)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+
+	c.JSON(consts.StatusOK, map[string]interface{}{
+		"code":    0,
+		"message": "success",
+		"data": map[string]interface{}{
+			"id": id,
+		},
+	})
+}
+
+// UpdateMcpPlugin updates an existing MCP plugin
+// @router /api/plugin_api/update_mcp_plugin [POST]
+func UpdateMcpPlugin(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req dto.UpdateMcpPluginRequest
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		invalidParamRequestResponse(c, err.Error())
+		return
+	}
+
+	if req.ID <= 0 {
+		invalidParamRequestResponse(c, "id is required")
+		return
+	}
+
+	if req.Name == "" {
+		invalidParamRequestResponse(c, "name is required")
+		return
+	}
+
+	err = plugin.PluginApplicationSVC.UpdateMcpPlugin(ctx, &req)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+
+	c.JSON(consts.StatusOK, map[string]interface{}{
+		"code":    0,
+		"message": "success",
+	})
+}
+
+// ListMcpPlugins lists MCP plugins with pagination
+// @router /api/plugin_api/list_mcp_plugins [POST]
+func ListMcpPlugins(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req dto.ListMcpPluginsRequest
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		invalidParamRequestResponse(c, err.Error())
+		return
+	}
+
+	if req.Page <= 0 {
+		req.Page = 1
+	}
+	if req.PageSize <= 0 {
+		req.PageSize = 20
+	}
+
+	resp, err := plugin.PluginApplicationSVC.ListMcpPlugins(ctx, &req)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+
+	c.JSON(consts.StatusOK, map[string]interface{}{
+		"code":    0,
+		"message": "success",
+		"data":    resp,
+	})
+}
+
+// GetMcpPlugin gets an MCP plugin by user_id (from context)
+// @router /api/plugin_api/get_mcp_plugin [POST]
+func GetMcpPlugin(ctx context.Context, c *app.RequestContext) {
+	var err error
+	// Get user ID from context
+	userID := ctxutil.MustGetUIDFromCtx(ctx)
+
+	plugin, err := plugin.PluginApplicationSVC.GetMcpPlugin(ctx, userID)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+
+	c.JSON(consts.StatusOK, map[string]interface{}{
+		"code":    0,
+		"message": "success",
+		"data":    plugin,
+	})
+}
+
+// DeleteMcpPlugin deletes an MCP plugin
+// @router /api/plugin_api/delete_mcp_plugin [POST]
+func DeleteMcpPlugin(ctx context.Context, c *app.RequestContext) {
+	var err error
+	idStr := c.Query("id")
+	if idStr == "" {
+		invalidParamRequestResponse(c, "id is required")
+		return
+	}
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		invalidParamRequestResponse(c, "invalid id")
+		return
+	}
+
+	err = plugin.PluginApplicationSVC.DeleteMcpPlugin(ctx, id)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+
+	c.JSON(consts.StatusOK, map[string]interface{}{
+		"code":    0,
+		"message": "success",
+	})
 }

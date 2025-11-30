@@ -112,6 +112,69 @@ func GetAllPluginProducts() []*PluginInfo {
 	return plugins
 }
 
+// 删除所有 PluginType_LOCAL 插件类型的插件，包含的 toolProducts 对应的 ToolInfo 也要删除
+func DeleteAllLocalPluginProducts() (int, int) {
+	delPluginCount := 0
+	delToolCount := 0
+	for pluginID, pl := range pluginProducts {
+		if pl.Info.PluginType == common.PluginType_LOCAL {
+			delete(pluginProducts, pluginID)
+			for _, toolInfo := range toolProducts {
+				if toolInfo.Info.PluginID == pluginID {
+					delete(toolProducts, toolInfo.Info.ID)
+					delToolCount++
+				}
+			}
+			delPluginCount++
+		}
+	}
+	logs.CtxInfof(context.Background(), "Deleted %d local plugin products", delPluginCount)
+	return delPluginCount, delToolCount
+}
+
+// AddLocalMcpPlugin adds a user-created MCP plugin to the in-memory cache
+// This allows GetPluginProduct and MGetPluginProducts to find MCP plugins from database
+func AddLocalMcpPlugin(ctx context.Context, pluginID int64, pluginInfo *model.PluginInfo, tools []*entity.ToolInfo) error {
+	if pluginProducts == nil {
+		pluginProducts = make(map[int64]*PluginInfo)
+	}
+	if toolProducts == nil {
+		toolProducts = make(map[int64]*ToolInfo)
+	}
+
+	// Check if plugin already exists
+	if _, exists := pluginProducts[pluginID]; exists {
+		logs.CtxWarnf(ctx, "[MCP] Plugin %d already exists in cache, skipping", pluginID)
+		return nil
+	}
+
+	// Create PluginInfo
+	pi := &PluginInfo{
+		Info:    pluginInfo,
+		ToolIDs: make([]int64, 0, len(tools)),
+	}
+
+	// Add tools to toolProducts and collect tool IDs
+	for _, tool := range tools {
+		// Check for duplicate tool ID
+		if _, ok := toolProducts[tool.ID]; ok {
+			logs.CtxWarnf(ctx, "[MCP] Duplicate tool id '%d' for plugin_id=%d, skipping", tool.ID, pluginID)
+			continue
+		}
+
+		pi.ToolIDs = append(pi.ToolIDs, tool.ID)
+		toolProducts[tool.ID] = &ToolInfo{
+			Info: tool,
+		}
+	}
+
+	// Add plugin to cache
+	pluginProducts[pluginID] = pi
+
+	logs.CtxInfof(ctx, "[MCP] Added MCP plugin %d to cache with %d tools", pluginID, len(pi.ToolIDs))
+	return nil
+}
+
 type PluginInfo struct {
 	Info    *model.PluginInfo
 	ToolIDs []int64

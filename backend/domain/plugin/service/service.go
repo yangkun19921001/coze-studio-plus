@@ -88,4 +88,12 @@ type PluginService interface {
 	OAuthCode(ctx context.Context, code string, state *dto.OAuthState) (err error)
 	GetAccessToken(ctx context.Context, oa *dto.OAuthInfo) (accessToken string, err error)
 	RevokeAccessToken(ctx context.Context, meta *dto.AuthorizationCodeMeta) (err error)
+
+	// MCP Plugin
+	CreateMcpPlugin(ctx context.Context, req *dto.CreateMcpPluginRequest) (id int64, err error)
+	UpdateMcpPlugin(ctx context.Context, req *dto.UpdateMcpPluginRequest) (err error)
+	ListMcpPlugins(ctx context.Context, req *dto.ListMcpPluginsRequest) (resp *dto.ListMcpPluginsResponse, err error)
+	GetMcpPlugin(ctx context.Context, userID int64) (plugin *dto.McpPluginInfo, err error)
+	DeleteMcpPlugin(ctx context.Context, id int64) (err error)
+	SyncMcpPluginsFromYaml(ctx context.Context) (err error)
 }
