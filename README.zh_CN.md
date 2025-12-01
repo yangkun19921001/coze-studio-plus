@@ -77,7 +77,8 @@ Coze Studio 的后端采用 Golang 开发，前端使用 React + TypeScript，�
 * **项目配置**：
    * [模型配置](https://github.com/coze-dev/coze-studio/wiki/3.-模型配置)：部署 Coze Studio 开源版之前，必须配置模型服务，否则无法在搭建智能体、工作流和应用时选择模型。
    * [插件配置](https://github.com/coze-dev/coze-studio/wiki/4.-插件配置)：如需使用插件商店中的官方插件，必须先配置插件，添加第三方服务的鉴权秘钥。
-     * **MCP 插件配置**：Coze Studio 支持基于 Model Context Protocol (MCP) 的插件。在 `backend/conf/plugin/pluginproduct/plugin_meta.yaml` 中添加 MCP 插件配置：
+     * **MCP 插件配置**：Coze Studio 支持基于 Model Context Protocol (MCP) 的插件。
+     * 在 `backend/conf/plugin/pluginproduct/plugin_meta.yaml` 中添加 MCP 插件配置：
        ```yaml
        - plugin_id: 101
          version: v1.0.0
@@ -99,6 +100,32 @@ Coze Studio 的后端采用 Golang 开发，前端使用 React + TypeScript，�
          # tools 列表可选：MCP 工具会自动从服务器加载
        ```
        MCP 插件会在加载时自动从服务器获取可用工具列表，无需手动配置 `tools` 字段。
+     - 在线配置(前端探索中点击 mcp 配置)
+       ```json
+        {
+            "mcpServers": {
+              "remote-exec": {
+                "url": "http://1.1.1.1:8001/sse",
+                "transport_type": "sse"
+              },
+              "pairat-remote-exec": {
+                "url": "http://1.1.1.4:8000/mcp/sse",
+                "transport_type": "sse"
+              },
+              "web_search": {
+                "transport_type": "stdio",
+                      "command": "npx",
+                "args": ["-y", "websearch-mcp"],
+                "env": {
+                  "API_URL": "http://localhost:3001",
+                  "MAX_SEARCH_RESULT": "5",
+                  "LANGUAGE": "en",
+                  "REGION": "us"
+                }
+              }
+            }
+          }
+       ``` 
    * [基础组件配置](https://github.com/coze-dev/coze-studio/wiki/5.-基础组件配置)：了解如何配置图片上传等组件，以便在 Coze Studio 中使用上传图片等功能。
 * [API 参考](https://github.com/coze-dev/coze-studio/wiki/6.-API-参考)：Coze Studio 社区版 API 和 Chat SDK 通过个人访问令牌鉴权，提供对话和工作流相关 API。
 * [开发规范](https://github.com/coze-dev/coze-studio/wiki/7.-开发规范)：
