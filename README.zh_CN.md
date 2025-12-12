@@ -100,7 +100,7 @@ Coze Studio 的后端采用 Golang 开发，前端使用 React + TypeScript，�
          # tools 列表可选：MCP 工具会自动从服务器加载
        ```
        MCP 插件会在加载时自动从服务器获取可用工具列表，无需手动配置 `tools` 字段。
-     - 在线配置(前端探索中点击 mcp 配置)
+     * 在线配置(前端探索中点击 mcp 配置)
        ```json
         {
             "mcpServers": {
@@ -126,6 +126,7 @@ Coze Studio 的后端采用 Golang 开发，前端使用 React + TypeScript，�
             }
           }
        ``` 
+  
    * [基础组件配置](https://github.com/coze-dev/coze-studio/wiki/5.-基础组件配置)：了解如何配置图片上传等组件，以便在 Coze Studio 中使用上传图片等功能。
 * [API 参考](https://github.com/coze-dev/coze-studio/wiki/6.-API-参考)：Coze Studio 社区版 API 和 Chat SDK 通过个人访问令牌鉴权，提供对话和工作流相关 API。
 * [开发规范](https://github.com/coze-dev/coze-studio/wiki/7.-开发规范)：

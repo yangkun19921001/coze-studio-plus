@@ -21,8 +21,11 @@ import "github.com/getkin/kin-openapi/openapi3"
 type PluginType string
 
 const (
-	PluginTypeOfCloud  PluginType = "openapi"
-	PluginTypeOfMCP    PluginType = "coze-studio-mcp"
+	// HTTP/RESTful API
+	PluginTypeOfCloud PluginType = "openapi"
+	// MCP Server
+	PluginTypeOfMCP PluginType = "coze-studio-mcp"
+	// Custom
 	PluginTypeOfCustom PluginType = "coze-studio-custom"
 )
 

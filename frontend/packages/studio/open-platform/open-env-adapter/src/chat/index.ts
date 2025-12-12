@@ -36,6 +36,9 @@ export const openApiCdnUrlByRegion = IS_OVERSEA
 //     : 'https://iaas-ops-agent.pyinfra.work';
 export const openApiHostByRegion =
   typeof location !== 'undefined' ? location.origin : 'https://api.xxx.com';
+
+// export const openApiHostByRegion = 'https://iaas-ops-agent.pyinfra.work';
+
 export const openApiHostByRegionWithToken = openApiHostByRegion;
 
 export const openSdkPrefix = '';

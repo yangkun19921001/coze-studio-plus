@@ -29,11 +29,12 @@
     - [4.1 执行场景](#41-执行场景)
     - [4.2 统一执行入口与完整执行流程](#42-统一执行入口与完整执行流程)
       - [4.2.1 执行场景示例](#421-执行场景示例)
-      - [4.2.2 完整执行流程详解](#422-完整执行流程详解)
-      - [4.2.3 核心代码流程](#423-核心代码流程)
-      - [4.2.4 执行流程图总结](#424-执行流程图总结)
-      - [4.2.5 关键差异对比](#425-关键差异对比)
-      - [4.2.6 执行上下文传递](#426-执行上下文传递)
+      - [4.2.2 HTTP API 到响应的完整流程](#422-http-api-到响应的完整流程)
+      - [4.2.3 完整执行流程详解（Workflow 内部执行）](#423-完整执行流程详解workflow-内部执行)
+      - [4.2.4 核心代码流程（Workflow 内部执行）](#424-核心代码流程workflow-内部执行)
+      - [4.2.5 执行流程图总结](#425-执行流程图总结)
+      - [4.2.6 关键差异对比](#426-关键差异对比)
+      - [4.2.7 执行上下文传递](#427-执行上下文传递)
       - [ExecuteTool 主流程](#executetool-主流程)
       - [buildToolExecutor 详细实现](#buildtoolexecutor-详细实现)
       - [getWorkflowPluginInfo 示例（Workflow 场景）](#getworkflowplugininfo-示例workflow-场景)
@@ -642,7 +643,7 @@ const (
 
 ### 4.2 统一执行入口与完整执行流程
 
-所有插件执行都通过 `PluginService.ExecuteTool()` 方法。本节将通过一个完整的 Workflow 示例来详细说明插件执行的端到端流程。
+所有插件执行都通过 `PluginService.ExecuteTool()` 方法。本节将通过一个完整的 Workflow 示例来详细说明插件执行的端到端流程，包括从 HTTP API 请求到 SSE 响应的完整链路。
 
 #### 4.2.1 执行场景示例
 
@@ -652,63 +653,1031 @@ const (
 ```
 
 **执行流程**：
-1. **Workflow 启动**：用户触发 Workflow 执行
-2. **LLM 节点执行**：LLM 通过 Function Calling 调用新闻插件
-3. **新闻插件节点执行**：直接执行新闻插件获取数据
-4. **结果传递**：插件结果传递给后续节点
+1. **前端发起 HTTP 请求**：`POST /v1/workflows/chat`
+2. **后端接收请求**：Handler 层处理请求并创建 SSE 连接
+3. **Workflow 启动**：应用层启动 Workflow 执行
+4. **LLM 节点执行**：LLM 通过 Function Calling 调用新闻插件
+5. **新闻插件节点执行**：直接执行新闻插件获取数据
+6. **实时流式输出**：通过 SSE 实时推送消息给前端
+7. **前端轮询状态**：`GET /api/workflow_api/get_process` 获取执行状态
+8. **结果传递**：插件结果传递给后续节点
 
-#### 4.2.2 完整执行流程详解
+#### 4.2.2 HTTP API 到响应的完整流程
+
+从 HTTP API 请求到 SSE 响应的完整流程，包括前端请求、后端处理、Workflow 执行、实时流式输出和状态查询。
+
+**完整流程概览**：
 
 ```mermaid
 sequenceDiagram
-    participant User
+    participant Frontend
+    participant HTTPHandler
+    participant AppService
     participant WorkflowEngine
+    participant StreamWriter
+    participant SSEWriter
     participant LLMNode
     participant PluginService
-    participant NewsPluginNode
-    participant ToolExecutor
-    participant HTTPInvocation
-    participant NewsAPI
+    participant ExternalAPI
     
-    User->>WorkflowEngine: 执行 Workflow
-    WorkflowEngine->>LLMNode: Invoke(input)
+    Note over Frontend: 1. 前端发起 HTTP 请求
+    Frontend->>HTTPHandler: POST /v1/workflows/chat<br/>{workflow_id, messages, ...}
     
-    Note over LLMNode: LLM 节点执行
-    LLMNode->>LLMNode: 构建工具列表（包含新闻插件）
-    LLMNode->>LLMNode: 调用 LLM（带工具定义）
-    LLM-->>LLMNode: Function Call: get_news(query="AI")
+    Note over HTTPHandler: 2. Handler 层处理
+    HTTPHandler->>HTTPHandler: 创建 SSE Writer<br/>设置响应头
+    HTTPHandler->>AppService: OpenAPIChatFlowRun(req)
     
-    Note over LLMNode,PluginService: Function Calling 调用插件
-    LLMNode->>PluginService: ExecuteTool(req, opts)
-    PluginService->>PluginService: buildToolExecutor()
-    PluginService->>ToolExecutor: execute()
-    ToolExecutor->>HTTPInvocation: Do(ctx, args)
-    HTTPInvocation->>NewsAPI: HTTP Request
-    NewsAPI-->>HTTPInvocation: Response
-    HTTPInvocation-->>ToolExecutor: result
-    ToolExecutor-->>PluginService: ExecuteResponse
+    Note over AppService: 3. 应用层启动 Workflow
+    AppService->>AppService: 解析请求参数<br/>创建会话/轮次
+    AppService->>WorkflowEngine: StreamRun(ctx, input, opts)
+    
+    Note over WorkflowEngine: 4. Workflow 引擎执行
+    WorkflowEngine->>WorkflowEngine: 创建 StreamWriter<br/>绑定到执行上下文
+    WorkflowEngine->>LLMNode: Stream(ctx, input)
+    
+    Note over LLMNode: 5. LLM 节点流式执行
+    LLMNode->>LLMNode: 调用 LLM（带工具）
+    LLM-->>LLMNode: Stream Output (逐字输出)
+    LLMNode->>StreamWriter: Send(Message{Content: "被"})
+    StreamWriter->>AppService: 消息事件
+    AppService->>SSEWriter: Write(Event{type: "conversation.message.delta"})
+    SSEWriter-->>Frontend: data: {"content":"被",...}
+    
+    Note over LLMNode,PluginService: 6. Function Calling 调用插件
+    LLM-->>LLMNode: Function Call: get_news()
+    LLMNode->>PluginService: ExecuteTool(req)
+    PluginService->>ExternalAPI: HTTP Request
+    ExternalAPI-->>PluginService: Response
     PluginService-->>LLMNode: 新闻数据
+    LLMNode->>StreamWriter: Send(ToolResponse)
+    StreamWriter->>AppService: 工具响应事件
+    AppService->>SSEWriter: Write(Event{type: "conversation.message.delta"})
+    SSEWriter-->>Frontend: data: {"type":"answer",...}
     
-    LLMNode->>LLMNode: 将插件结果传给 LLM
-    LLM-->>LLMNode: 生成最终回复
-    LLMNode-->>WorkflowEngine: LLM 输出
+    Note over WorkflowEngine: 7. Workflow 完成
+    WorkflowEngine->>StreamWriter: Send(StateMessage{Status: Completed})
+    StreamWriter->>AppService: 完成事件
+    AppService->>SSEWriter: Write(Event{type: "conversation.done"})
+    SSEWriter-->>Frontend: data: {"status":"completed"}
+    SSEWriter-->>Frontend: [SSE 连接关闭]
     
-    Note over WorkflowEngine,NewsPluginNode: 插件节点执行
-    WorkflowEngine->>NewsPluginNode: Invoke(input)
-    NewsPluginNode->>PluginService: ExecutePlugin(ctx, input, pe, toolID, cfg)
-    PluginService->>ToolExecutor: execute()
-    ToolExecutor->>HTTPInvocation: Do(ctx, args)
-    HTTPInvocation->>NewsAPI: HTTP Request
-    NewsAPI-->>HTTPInvocation: Response
-    HTTPInvocation-->>ToolExecutor: result
-    ToolExecutor-->>PluginService: ExecuteResponse
-    PluginService-->>NewsPluginNode: 新闻数据
-    NewsPluginNode-->>WorkflowEngine: 节点输出
-    
-    WorkflowEngine-->>User: Workflow 完成
+    Note over Frontend: 8. 前端轮询执行状态
+    Frontend->>HTTPHandler: GET /api/workflow_api/get_process<br/>?workflow_id=xxx&execute_id=xxx
+    HTTPHandler->>AppService: GetProcess(req)
+    AppService->>AppService: 查询执行记录<br/>转换节点结果
+    AppService-->>HTTPHandler: {executeStatus, nodeResults, ...}
+    HTTPHandler-->>Frontend: JSON Response
 ```
 
-#### 4.2.3 核心代码流程
+**阶段一：HTTP Handler 接收请求并创建 SSE 连接**
+
+```go
+// backend/api/handler/coze/workflow_service.go:1091
+func OpenAPIChatFlowRun(ctx context.Context, c *app.RequestContext) {
+    // 1. 预处理请求体
+    if err = preprocessWorkflowRequestBody(ctx, c); err != nil {
+        invalidParamRequestResponse(c, err.Error())
+        return
+    }
+    
+    // 2. 绑定并验证请求参数
+    var req workflow.ChatFlowRunRequest
+    err = c.BindAndValidate(&req)
+    if err != nil {
+        invalidParamRequestResponse(c, err.Error())
+        return
+    }
+    
+    // 3. 创建 SSE Writer（用于流式输出）
+    w := sse.NewWriter(c)
+    c.SetContentType("text/event-stream; charset=utf-8")
+    c.Response.Header.Set("Cache-Control", "no-cache")
+    c.Response.Header.Set("Connection", "keep-alive")
+    c.Response.Header.Set("Access-Control-Allow-Origin", "*")
+    
+    // 4. 调用应用服务启动 Workflow（返回 StreamReader）
+    sr, err := appworkflow.SVC.OpenAPIChatFlowRun(ctx, &req)
+    if err != nil {
+        internalServerErrorResponse(ctx, c, err)
+        return
+    }
+    
+    // 5. 将 StreamReader 中的事件写入 SSE Writer
+    sendChatFlowStreamRunSSE(ctx, w, sr)
+}
+
+// 发送 SSE 事件
+func sendChatFlowStreamRunSSE(ctx context.Context, w *sse.Writer, 
+    sr *schema.StreamReader[[]*workflow.ChatFlowRunResponse]) {
+    defer func() {
+        _ = w.Close()  // 关闭 SSE Writer
+        sr.Close()     // 关闭 StreamReader
+    }()
+    
+    seq := int64(1)
+    for {
+        // 6. 从 StreamReader 接收响应列表
+        respList, err := sr.Recv()
+        
+        if err != nil {
+            if errors.Is(err, io.EOF) {
+                // 流结束
+                break
+            }
+            
+            // 发送错误事件
+            event := &sse.Event{
+                Type: "error",
+                Data: []byte(err.Error()),
+            }
+            if err = w.Write(event); err != nil {
+                logs.CtxErrorf(ctx, "publish stream event failed, err:%v", err)
+            }
+            return
+        }
+        
+        // 7. 将每个响应转换为 SSE 事件并发送
+        for _, resp := range respList {
+            event := &sse.Event{
+                ID:   strconv.FormatInt(seq, 10),  // 事件 ID（序列号）
+                Type: resp.Event,                  // 事件类型（如 "conversation.message.delta"）
+                Data: []byte(resp.Data),          // 事件数据（JSON 字符串）
+            }
+            
+            if err = w.Write(event); err != nil {
+                logs.CtxErrorf(ctx, "publish stream event failed, err:%v", err)
+                return
+            }
+            seq++
+        }
+    }
+}
+```
+
+**阶段二：应用层启动 Workflow 并创建 StreamReader**
+
+```go
+// backend/application/workflow/chatflow.go:473
+func (w *ApplicationService) OpenAPIChatFlowRun(ctx context.Context, req *workflow.ChatFlowRunRequest) (
+	_ *schema.StreamReader[[]*workflow.ChatFlowRunResponse], err error) {
+	
+	// 1. 验证请求参数
+	if len(req.GetAdditionalMessages()) == 0 {
+		return nil, fmt.Errorf("additional_messages is requird")
+	}
+	messages := req.GetAdditionalMessages()
+	lastUserMessage := messages[len(req.GetAdditionalMessages())-1]
+	if lastUserMessage.Role != userRole {
+		return nil, errors.New("the role of the last day message must be user")
+	}
+	
+	// 2. 解析 Workflow 输入参数
+	var parameters = make(map[string]any)
+	if len(req.GetParameters()) > 0 {
+		err := sonic.UnmarshalString(req.GetParameters(), &parameters)
+		if err != nil {
+			return nil, err
+		}
+	}
+	
+	// 3. 解析业务参数（workflowID, appID, conversationID 等）
+	var (
+		workflowID     = mustParseInt64(req.GetWorkflowID())
+		isDebug        = req.GetExecuteMode() == "DEBUG"
+		appID, agentID *int64
+		bizID          int64
+		conversationID int64
+		sectionID      int64
+		version        string
+		locator        workflowModel.Locator
+		apiKeyInfo     = ctxutil.GetApiAuthFromCtx(ctx)
+		userID         = apiKeyInfo.UserID
+		connectorID    int64
+	)
+	
+	// 4. 确定 locator（Draft/Online/Version）
+	if isDebug {
+		locator = workflowModel.FromDraft
+	} else {
+		meta, err := GetWorkflowDomainSVC().Get(ctx, &vo.GetPolicy{
+			ID:       workflowID,
+			MetaOnly: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if meta.LatestPublishedVersion == nil {
+			return nil, vo.NewError(errno.ErrWorkflowNotPublished)
+		}
+		if req.IsSetVersion() {
+			version = req.GetVersion()
+			locator = workflowModel.FromSpecificVersion
+		} else {
+			version = meta.GetLatestVersion()
+			locator = workflowModel.FromLatestVersion
+		}
+	}
+	
+	// 5. 处理会话（获取或创建）
+	if req.IsSetConversationID() && !req.IsSetBotID() {
+		conversationID = mustParseInt64(req.GetConversationID())
+		cInfo, err := crossconversation.DefaultSVC().GetByID(ctx, conversationID)
+		if err != nil {
+			return nil, err
+		}
+		sectionID = cInfo.SectionID
+		// ... 获取会话名称
+	} else {
+		// 创建新会话
+		conversationName, ok := parameters[vo.ConversationNameKey].(string)
+		if !ok {
+			return nil, fmt.Errorf("conversation name is requried")
+		}
+		cID, sID, err := GetWorkflowDomainSVC().GetOrCreateConversation(ctx, 
+			ternary.IFElse(isDebug, vo.Draft, vo.Online), bizID, connectorID, userID, conversationName)
+		if err != nil {
+			return nil, err
+		}
+		conversationID = cID
+		sectionID = sID
+	}
+	
+	// 6. 创建 Agent Run（轮次）
+	runRecord, err := crossagentrun.DefaultSVC().Create(ctx, &agententity.AgentRunMeta{
+		AgentID:        bizID,
+		ConversationID: conversationID,
+		UserID:         strconv.FormatInt(userID, 10),
+		ConnectorID:    connectorID,
+		SectionID:      sectionID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	roundID := runRecord.ID
+	
+	// 7. 创建用户消息并保存
+	userMessage, err := toConversationMessage(ctx, bizID, conversationID, userID, roundID, sectionID, 
+		message.MessageTypeQuestion, lastUserMessage)
+	if err != nil {
+		return nil, err
+	}
+	messageClient := crossmessage.DefaultSVC()
+	_, err = messageClient.Create(ctx, userMessage)
+	if err != nil {
+		return nil, err
+	}
+	
+	// 8. 构建执行配置
+	exeCfg := workflowModel.ExecuteConfig{
+		ID:            mustParseInt64(req.GetWorkflowID()),
+		From:          locator,
+		Version:       version,
+		Operator:      userID,
+		Mode:          ternary.IFElse(isDebug, workflowModel.ExecuteModeDebug, workflowModel.ExecuteModeRelease),
+		AppID:         appID,
+		AgentID:       agentID,
+		ConnectorID:   connectorID,
+		ConnectorUID:  strconv.FormatInt(userID, 10),
+		TaskType:      workflowModel.TaskTypeForeground,
+		SyncPattern:   workflowModel.SyncPatternStream,  // 流式模式
+		InputFailFast: true,
+		BizType:       workflowModel.BizTypeWorkflow,
+		ConversationID: ptr.Of(conversationID),
+		RoundID:        ptr.Of(roundID),
+		SectionID:      ptr.Of(sectionID),
+	}
+	
+	// 9. 构建历史消息
+	historyMessages, err := makeChatFlowHistoryMessages(ctx, bizID, conversationID, userID, sectionID, 
+		connectorID, messages[:len(req.GetAdditionalMessages())-1])
+	if err != nil {
+		return nil, err
+	}
+	
+	// 10. 构建 Workflow 输入参数
+	parameters[vo.UserInputKey], err = w.makeChatFlowUserInput(ctx, lastUserMessage)
+	if err != nil {
+		return nil, err
+	}
+	
+	// 11. 调用领域服务执行 Workflow（返回 StreamReader）
+	sr, err := GetWorkflowDomainSVC().StreamExecute(ctx, exeCfg, parameters)
+	if err != nil {
+		return nil, err
+	}
+	
+	// 12. 将 Workflow 消息 StreamReader 转换为 SSE 响应 StreamReader
+	return schema.StreamReaderWithConvert(sr, w.convertToChatFlowRunResponseList(ctx, convertToChatFlowInfo{
+		bizID:            bizID,
+		conversationID:   conversationID,
+		roundID:          roundID,
+		workflowID:       workflowID,
+		sectionID:        sectionID,
+		unbinding:        unbinding,
+		userMessage:      userSchemaMessage,
+		suggestReplyInfo: req.GetSuggestReplyInfo(),
+	})), nil
+}
+
+// 消息转换函数：将 entity.Message 转换为 ChatFlowRunResponse
+func (w *ApplicationService) convertToChatFlowRunResponseList(ctx context.Context, info convertToChatFlowInfo) 
+	func(msg *entity.Message) (responses []*workflow.ChatFlowRunResponse, err error) {
+	
+	var (
+		bizID          = info.bizID
+		conversationID = info.conversationID
+		roundID        = info.roundID
+		workflowID     = info.workflowID
+		sectionID      = info.sectionID
+		executeID      int64
+		intermediateMessage *message.Message
+		needRegeneratedMessage = true
+		messageDetailID int64
+	)
+	
+	return func(msg *entity.Message) (responses []*workflow.ChatFlowRunResponse, err error) {
+		// 处理状态消息
+		if msg.StateMessage != nil {
+			if executeID > 0 && executeID != msg.StateMessage.ExecuteID {
+				return nil, schema.ErrNoValue
+			}
+			switch msg.StateMessage.Status {
+			case entity.WorkflowSuccess:
+				// Workflow 成功完成
+				chatDoneEvent := &vo.ChatFlowDetail{
+					ID:             strconv.FormatInt(roundID, 10),
+					ConversationID: strconv.FormatInt(conversationID, 10),
+					SectionID:      strconv.FormatInt(sectionID, 10),
+					BotID:          strconv.FormatInt(bizID, 10),
+					Status:         vo.Completed,
+					ExecuteID:      strconv.FormatInt(executeID, 10),
+				}
+				data, _ := sonic.MarshalString(chatDoneEvent)
+				doneData, _ := sonic.MarshalString(map[string]interface{}{
+					"debug_url": debugutil.GetWorkflowDebugURL(ctx, workflowID, spaceID, executeID),
+				})
+				return []*workflow.ChatFlowRunResponse{
+					{Event: string(vo.ChatFlowCompleted), Data: data},
+					{Event: string(vo.ChatFlowDone), Data: doneData},
+				}, nil
+				
+			case entity.WorkflowFailed:
+				// Workflow 失败
+				var wfe vo.WorkflowError
+				errors.As(msg.StateMessage.LastError, &wfe)
+				chatFailedEvent := &vo.ErrorDetail{
+					Code:     strconv.Itoa(int(wfe.Code())),
+					Msg:      wfe.Msg(),
+					DebugUrl: wfe.DebugURL(),
+				}
+				data, _ := sonic.MarshalString(chatFailedEvent)
+				return []*workflow.ChatFlowRunResponse{
+					{Event: string(vo.ChatFlowError), Data: data},
+				}, err
+				
+			case entity.WorkflowRunning:
+				// Workflow 开始执行
+				executeID = msg.StateMessage.ExecuteID
+				chatEvent := &vo.ChatFlowDetail{
+					ID:             strconv.FormatInt(roundID, 10),
+					ConversationID: strconv.FormatInt(conversationID, 10),
+					Status:         vo.Created,
+					ExecuteID:      strconv.FormatInt(executeID, 10),
+					SectionID:      strconv.FormatInt(sectionID, 10),
+				}
+				data, _ := sonic.MarshalString(chatEvent)
+				return []*workflow.ChatFlowRunResponse{
+					{Event: string(vo.ChatFlowCreated), Data: data},
+					{Event: string(vo.ChatFlowInProgress), Data: data},
+				}, nil
+			}
+		}
+		
+		// 处理数据消息（LLM 输出）
+		if msg.DataMessage != nil && msg.Type == entity.Answer {
+			if needRegeneratedMessage {
+				id, _ := w.IDGenerator.GenID(ctx)
+				intermediateMessage = &message.Message{
+					ID:             id,
+					AgentID:        bizID,
+					RunID:          roundID,
+					SectionID:      sectionID,
+					ConversationID: conversationID,
+					Role:           schema.Assistant,
+					MessageType:    message.MessageTypeAnswer,
+					ContentType:    message.ContentTypeText,
+				}
+				messageDetailID = id
+				needRegeneratedMessage = false
+			}
+			
+			if !msg.Last {
+				intermediateMessage.Content += msg.Content
+			}
+			
+			// 构建增量消息
+			deltaData, _ := sonic.MarshalString(&vo.MessageDetail{
+				ID:             strconv.FormatInt(messageDetailID, 10),
+				ChatID:         strconv.FormatInt(roundID, 10),
+				ConversationID: strconv.FormatInt(conversationID, 10),
+				SectionID:      strconv.FormatInt(sectionID, 10),
+				BotID:          strconv.FormatInt(bizID, 10),
+				Role:           string(schema.Assistant),
+				Type:           string(entity.Answer),
+				ContentType:    string(message.ContentTypeText),
+				Content:        msg.Content,  // 增量内容（如 "被"）
+			})
+			
+			if !msg.Last {
+				// 增量输出
+				return []*workflow.ChatFlowRunResponse{
+					{Event: string(vo.ChatFlowMessageDelta), Data: deltaData},
+				}, nil
+			} else {
+				// 完成输出
+				_, err = crossmessage.DefaultSVC().Create(ctx, intermediateMessage)
+				if err != nil {
+					return nil, err
+				}
+				completeData, _ := sonic.MarshalString(&vo.MessageDetail{
+					ID:             strconv.FormatInt(messageDetailID, 10),
+					ChatID:         strconv.FormatInt(roundID, 10),
+					ConversationID: strconv.FormatInt(conversationID, 10),
+					SectionID:      strconv.FormatInt(sectionID, 10),
+					BotID:          strconv.FormatInt(bizID, 10),
+					Role:           string(schema.Assistant),
+					Type:           string(entity.Answer),
+					ContentType:    string(message.ContentTypeText),
+					Content:        intermediateMessage.Content,
+				})
+				needRegeneratedMessage = true
+				return []*workflow.ChatFlowRunResponse{
+					{Event: string(vo.ChatFlowMessageDelta), Data: deltaData},
+					{Event: string(vo.ChatFlowMessageCompleted), Data: completeData},
+				}, nil
+			}
+		}
+		
+		return nil, schema.ErrNoValue
+	}
+}
+```
+
+**阶段三：Workflow 引擎执行并实时发送消息**
+
+```go
+// backend/domain/workflow/service/executable_impl.go:454
+func (i *impl) StreamExecute(ctx context.Context, config workflowModel.ExecuteConfig, input map[string]any) 
+	(*schema.StreamReader[*entity.Message], error) {
+	
+	// 1. 获取 Workflow 实体
+	wfEntity, err := i.Get(ctx, &vo.GetPolicy{
+		ID:       config.ID,
+		QType:    config.From,
+		MetaOnly: false,
+		Version:  config.Version,
+		CommitID: config.CommitID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	
+	// 2. 解析 Canvas 并转换为 WorkflowSchema
+	c := &vo.Canvas{}
+	if err = sonic.UnmarshalString(wfEntity.Canvas, c); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal canvas: %w", err)
+	}
+	workflowSC, err := adaptor.CanvasToWorkflowSchema(ctx, c)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert canvas to workflow schema: %w", err)
+	}
+	
+	// 3. 处理历史消息（ChatFlow 模式）
+	historyRounds := int64(0)
+	if config.WorkflowMode == workflowapimodel.WorkflowMode_ChatFlow {
+		historyRounds = workflowSC.HistoryRounds()
+	}
+	if historyRounds > 0 {
+		if err = i.handleHistory(ctx, &config, input, historyRounds, false); err != nil {
+			return nil, err
+		}
+	}
+	
+	// 4. 创建 Workflow 对象
+	var wfOpts []compose.WorkflowOption
+	wfOpts = append(wfOpts, compose.WithIDAsName(wfEntity.ID))
+	if s := execute.GetStaticConfig(); s != nil && s.MaxNodeCountPerWorkflow > 0 {
+		wfOpts = append(wfOpts, compose.WithMaxNodeCount(s.MaxNodeCountPerWorkflow))
+	}
+	wf, err := compose.NewWorkflow(ctx, workflowSC, wfOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create workflow: %w", err)
+	}
+	
+	// 5. 转换输入参数
+	var cOpts []nodes.ConvertOption
+	inputFileFields := make(map[string]*workflowModel.FileInfo)
+	cOpts = append(cOpts, nodes.WithCollectFileFields(inputFileFields), nodes.WithNotNeedTrimQueryFileName(true))
+	if config.InputFailFast {
+		cOpts = append(cOpts, nodes.FailFast())
+	}
+	input, ws, err = nodes.ConvertInputs(ctx, input, wf.Inputs(), cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	
+	// 6. 创建 StreamWriter 和 StreamReader（Pipe）
+	sr, sw := schema.Pipe[*entity.Message](10)  // 缓冲区大小为 10
+	
+	// 7. 准备执行上下文（创建 WorkflowRunner，传入 StreamWriter）
+	cancelCtx, executeID, opts, _, err := compose.NewWorkflowRunner(wfEntity.GetBasic(), workflowSC, config,
+		compose.WithInput(inStr), compose.WithStreamWriter(sw)).Prepare(ctx)
+	if err != nil {
+		return nil, err
+	}
+	
+	// 8. 异步执行 Workflow（StreamWriter 会通过回调实时发送消息）
+	wf.AsyncRun(cancelCtx, input, opts...)
+	
+	// 9. 返回 StreamReader（应用层会从这个 Reader 接收消息）
+	return sr, nil
+}
+
+// backend/domain/workflow/internal/compose/workflow_run.go:107
+func (r *WorkflowRunner) Prepare(ctx context.Context) (
+	context.Context, int64, []einoCompose.Option, <-chan *execute.Event, error) {
+	
+	var (
+		err       error
+		executeID int64
+		repo      = wf.GetRepository()
+		resumeReq = r.resumeReq
+		container = r.container
+	)
+	
+	// 1. 生成执行 ID
+	if r.resumeReq == nil {
+		executeID, err = repo.GenID(ctx)
+		if err != nil {
+			return ctx, 0, nil, nil, vo.WrapError(errno.ErrIDGenError,
+				fmt.Errorf("failed to generate workflow execute ID: %w", err))
+		}
+	} else {
+		executeID = resumeReq.ExecuteID
+	}
+	
+	// 2. 创建事件通道
+	eventChan := make(chan *execute.Event)
+	
+	// 3. 处理恢复事件（如果有）
+	var interruptEvent *entity.InterruptEvent
+	if resumeReq != nil {
+		interruptEvent, found, err = repo.GetFirstInterruptEvent(ctx, executeID)
+		if err != nil {
+			return ctx, 0, nil, nil, err
+		}
+		if !found {
+			return ctx, 0, nil, nil, fmt.Errorf("interrupt event does not exist, id: %d", resumeReq.EventID)
+		}
+	}
+	
+	r.executeID = executeID
+	r.eventChan = eventChan
+	r.interruptEvent = interruptEvent
+	
+	// 4. 创建 StreamContainer（如果提供了 StreamWriter）
+	if container != nil {
+		go container.PipeAll()  // 启动管道处理
+		defer func() {
+			if err != nil {
+				container.Done()
+			}
+		}()
+	}
+	
+	// 5. 构建执行选项（包含回调处理器）
+	composeOpts, err := r.designateOptions(ctx)
+	if err != nil {
+		return ctx, 0, nil, nil, err
+	}
+	
+	// 6. 处理恢复状态修改器（如果有恢复事件）
+	if interruptEvent != nil {
+		stateModifier := GenStateModifierByEventType(interruptEvent.EventType,
+			interruptEvent.NodeKey, resumeReq.ResumeData, r.config)
+		// ... 添加状态修改器选项
+	}
+	
+	return cancelCtx, executeID, composeOpts, eventChan, nil
+}
+
+// backend/domain/workflow/internal/compose/designate_option.go:40
+func (r *WorkflowRunner) designateOptions(ctx context.Context) ([]einoCompose.Option, error) {
+	var (
+		wb           = r.basic
+		exeCfg       = r.config
+		executeID    = r.executeID
+		workflowSC   = r.schema
+		eventChan    = r.eventChan
+		resumedEvent = r.interruptEvent
+		container    = r.container
+		streamWriter = r.sw  // StreamWriter
+	)
+	
+	if wb.AppID != nil && exeCfg.AppID == nil {
+		exeCfg.AppID = wb.AppID
+	}
+	
+	// 创建根回调处理器（会使用 StreamWriter 发送消息）
+	rootHandler := execute.NewRootWorkflowHandler(
+		wb,
+		executeID,
+		workflowSC.RequireCheckpoint(),
+		eventChan,
+		resumedEvent,
+		exeCfg,
+		workflowSC.NodeCount(),
+		streamWriter)  // StreamWriter 传入回调处理器
+	
+	opts := []einoCompose.Option{einoCompose.WithCallbacks(rootHandler)}
+	
+	// 为每个节点添加回调处理器
+	for key := range workflowSC.GetAllNodes() {
+		ns := workflowSC.GetAllNodes()[key]
+		
+		var nodeOpt einoCompose.Option
+		if ns.Type == entity.NodeTypeExit {
+			nodeOpt = nodeCallbackOption(key, ns.Name, eventChan, resumedEvent,
+				ptr.Of(ns.Configs.(*exit.Config).TerminatePlan))
+		} else if ns.Type != entity.NodeTypeLambda {
+			nodeOpt = nodeCallbackOption(key, ns.Name, eventChan, resumedEvent, nil)
+		}
+		
+		if parent, ok := workflowSC.Hierarchy[key]; !ok {
+			// 顶层节点，直接添加节点处理器
+			opts = append(opts, nodeOpt)
+			if ns.Type == entity.NodeTypeSubWorkflow {
+				// 处理子工作流节点
+				subOpts, err := r.designateOptionsForSubWorkflow(ctx,
+					rootHandler.(*execute.WorkflowHandler), ns, string(key))
+				if err != nil {
+					return nil, err
+				}
+				opts = append(opts, subOpts...)
+			} else if ns.Type == entity.NodeTypeLLM {
+				// 处理 LLM 节点（添加工具回调）
+				llmNodeOpts, err := llmToolCallbackOptions(ctx, ns, eventChan, container)
+				if err != nil {
+					return nil, err
+				}
+				opts = append(opts, llmNodeOpts...)
+			}
+		} else {
+			// 嵌套节点，需要包装
+			opts = append(opts, WrapOpt(nodeOpt, parent.Key))
+			if ns.Type == entity.NodeTypeSubWorkflow {
+				subOpts, err := r.designateOptionsForSubWorkflow(ctx,
+					rootHandler.(*execute.WorkflowHandler), ns, string(key))
+				if err != nil {
+					return nil, err
+				}
+				for _, subO := range subOpts {
+					opts = append(opts, WrapOpt(subO, parent.Key))
+				}
+			} else if ns.Type == entity.NodeTypeLLM {
+				llmNodeOpts, err := llmToolCallbackOptions(ctx, ns, eventChan, container)
+				if err != nil {
+					return nil, err
+				}
+				for _, subO := range llmNodeOpts {
+					opts = append(opts, WrapOpt(subO, parent.Key))
+				}
+			}
+		}
+	}
+	
+	// 如果需要检查点，添加检查点选项
+	if workflowSC.RequireCheckpoint() {
+		opts = append(opts, einoCompose.WithCheckPointID(strconv.FormatInt(executeID, 10)))
+	}
+	
+	return opts, nil
+}
+
+// backend/domain/workflow/internal/execute/callback.go:76
+func NewRootWorkflowHandler(wb *entity.WorkflowBasic, executeID int64, requireCheckpoint bool,
+	ch chan<- *Event, resumedEvent *entity.InterruptEvent, exeCfg workflowModel.ExecuteConfig, nodeCount int32,
+	streamWriter *schema.StreamWriter[*entity.Message],
+) callbacks.Handler {
+	return &WorkflowHandler{
+		ch:                ch,
+		rootWorkflowBasic: wb,
+		rootExecuteID:     executeID,
+		requireCheckpoint: requireCheckpoint,
+		resumeEvent:       resumedEvent,
+		exeCfg:            exeCfg,
+		nodeCount:         nodeCount,
+		streamWriter:      streamWriter,  // StreamWriter 用于实时发送消息
+	}
+}
+```
+
+**阶段四：LLM 节点实时发送流式输出**
+
+```go
+// backend/domain/workflow/internal/nodes/llm/llm.go:1455
+func (l *LLM) Stream(ctx context.Context, in map[string]any, opts ...nodes.NodeOption) 
+	(out *schema.StreamReader[map[string]any], err error) {
+	
+	// 1. 准备执行选项
+	composeOpts, resumingEvent, err := l.prepare(ctx, in, opts...)
+	if err != nil {
+		return nil, err
+	}
+	
+	// 2. 从执行上下文获取 StreamWriter
+	exeCtx := execute.GetExeCtx(ctx)
+	if exeCtx != nil && exeCtx.RootCtx.StreamWriter != nil {
+		l.realtimeWriter = exeCtx.RootCtx.StreamWriter
+		logs.Infof("✅ [LLM Stream] Found StreamWriter in execute context, will send messages directly")
+	}
+	
+	// 3. 添加工具回调处理器（用于实时发送工具调用事件）
+	if l.toolCallbackHandler != nil {
+		composeOpts = append(composeOpts, compose.WithCallbacks(l.toolCallbackHandler))
+	}
+	
+	// 4. 调用 LLM Graph 的 Stream 方法
+	out, err = l.r.Stream(ctx, in, composeOpts...)
+	if err != nil {
+		err = l.handleInterrupt(ctx, err, resumingEvent)
+		return nil, err
+	}
+	
+	return out, nil
+}
+
+// 工具回调处理器（在 Build 方法中创建）
+// backend/domain/workflow/internal/nodes/llm/llm.go:886
+toolCallbackHandler := callbacks2.NewHandlerHelper().
+	ChatModel(&callbacks2.ModelCallbackHandler{
+		OnEndWithStreamOutput: func(ctx context.Context, info *callbacks.RunInfo, 
+			output *schema.StreamReader[*model.CallbackOutput]) context.Context {
+			
+			go func() {
+				exeCtx := execute.GetExeCtx(ctx)
+				allContent := []string{}
+				
+				for {
+					frame, err := output.Recv()
+					if errors.Is(err, io.EOF) {
+						if len(allContent) > 0 {
+							logs.Infof("NewHandlerHelper ChatModel Stream EOF, total: %d chars", 
+								len(strings.Join(allContent, "")))
+						}
+						break
+					}
+					if err != nil {
+						logs.Errorf("NewHandlerHelper ChatModel Stream Error: %v", err)
+						return
+					}
+					
+					if frame.Message.Content != "" {
+						allContent = append(allContent, frame.Message.Content)
+						
+						// 🚀 实时发送消息到 StreamWriter
+						if llmRef != nil && llmRef.realtimeWriter != nil && exeCtx != nil {
+							dataMsg := &entity.DataMessage{
+								Type:      entity.Answer,
+								Content:   frame.Message.Content,  // 增量内容（如 "被"）
+								Role:      schema.Assistant,
+								NodeType:  entity.NodeTypeLLM,
+								ExecuteID: exeCtx.RootExecuteID,
+								NodeID:    string(exeCtx.NodeKey),
+								NodeTitle: exeCtx.NodeName,
+							}
+							
+							msg := &entity.Message{
+								DataMessage: dataMsg,
+							}
+							
+							// 发送到 StreamWriter，最终会通过 SSE 推送给前端
+							llmRef.realtimeWriter.Send(msg, nil)
+						}
+					}
+				}
+			}()
+			
+			return ctx
+		},
+	}).
+	Tool(&callbacks2.ToolCallbackHandler{
+		OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *tool.CallbackInput) context.Context {
+			// 发送工具调用开始事件
+			if llmRef != nil && llmRef.realtimeWriter != nil {
+				exeCtx := execute.GetExeCtx(ctx)
+				if exeCtx != nil {
+					dataMsg := &entity.DataMessage{
+						Type:      entity.FunctionCall,
+						Role:      schema.Assistant,
+						NodeType:  entity.NodeTypeLLM,
+						ExecuteID: exeCtx.RootExecuteID,
+						NodeID:    string(exeCtx.NodeKey),
+						NodeTitle: exeCtx.NodeName,
+						FunctionCall: &entity.FunctionCallInfo{
+							FunctionInfo: entity.FunctionInfo{
+								Name: info.Name,
+								Type: entity.PluginTool,
+							},
+							CallID:    compose.GetToolCallID(ctx),
+							Arguments: parseArguments(input.ArgumentsInJSON),
+						},
+					}
+					llmRef.realtimeWriter.Send(&entity.Message{DataMessage: dataMsg}, nil)
+				}
+			}
+			return ctx
+		},
+		OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *tool.CallbackOutput) context.Context {
+			// 发送工具调用结束事件
+			if llmRef != nil && llmRef.realtimeWriter != nil {
+				exeCtx := execute.GetExeCtx(ctx)
+				if exeCtx != nil {
+					dataMsg := &entity.DataMessage{
+						Type:      entity.ToolResponse,
+						Role:      schema.Tool,
+						NodeType:  entity.NodeTypeLLM,
+						ExecuteID: exeCtx.RootExecuteID,
+						NodeID:    string(exeCtx.NodeKey),
+						NodeTitle: exeCtx.NodeName,
+						ToolResponse: &entity.ToolResponseInfo{
+							FunctionInfo: entity.FunctionInfo{
+								Name: info.Name,
+								Type: entity.PluginTool,
+							},
+							CallID:   compose.GetToolCallID(ctx),
+							Response: output.OutputInJSON,
+						},
+					}
+					llmRef.realtimeWriter.Send(&entity.Message{DataMessage: dataMsg}, nil)
+				}
+			}
+			return ctx
+		},
+	}).Handler()
+```
+
+**阶段五：前端轮询执行状态**
+
+```go
+// backend/api/handler/coze/workflow_service.go:443
+func GetWorkFlowProcess(ctx context.Context, c *app.RequestContext) {
+    // 1. 绑定并验证请求参数
+    var req workflow.GetWorkflowProcessRequest
+    err = c.BindAndValidate(&req)
+    
+    // 2. 调用应用服务获取执行状态
+    resp, err := appworkflow.SVC.GetProcess(ctx, &req)
+    
+    // 3. 返回 JSON 响应
+    c.JSON(consts.StatusOK, resp)
+}
+
+// backend/application/workflow/workflow.go:634
+func (w *ApplicationService) GetProcess(ctx context.Context, 
+    req *workflow.GetWorkflowProcessRequest) (*workflow.GetWorkflowProcessResponse, error) {
+    
+    // 1. 构建执行实体查询条件
+    var wfExeEntity *entity.WorkflowExecution
+    if req.SubExecuteID == nil {
+        wfExeEntity = &entity.WorkflowExecution{
+            ID:         mustParseInt64(req.GetExecuteID()),
+            WorkflowID: mustParseInt64(req.GetWorkflowID()),
+        }
+    } else {
+        wfExeEntity = &entity.WorkflowExecution{
+            ID:              mustParseInt64(req.GetSubExecuteID()),
+            WorkflowID:      mustParseInt64(req.GetWorkflowID()),
+            RootExecutionID: mustParseInt64(req.GetExecuteID()),
+        }
+    }
+    
+    // 2. 从数据库查询执行记录（包含节点执行记录）
+    wfExeEntity, err = GetWorkflowDomainSVC().GetExecution(ctx, wfExeEntity, true)
+    
+    // 3. 转换执行状态
+    status := wfExeEntity.Status
+    if status == entity.WorkflowInterrupted {
+        status = entity.WorkflowRunning
+    }
+    
+    // 4. 构建响应数据
+    resp := &workflow.GetWorkflowProcessResponse{
+        Data: &workflow.GetWorkFlowProcessData{
+            WorkFlowId:       fmt.Sprintf("%d", wfExeEntity.WorkflowID),
+            ExecuteId:        fmt.Sprintf("%d", wfExeEntity.ID),
+            ExecuteStatus:    workflow.WorkflowExeStatus(status),  // 1: 运行中, 2: 成功, 3: 失败
+            ExeHistoryStatus: workflow.WorkflowExeHistoryStatus_HasHistory,
+            WorkflowExeCost:  fmt.Sprintf("%.3fs", wfExeEntity.Duration.Seconds()),
+            Reason:           wfExeEntity.FailReason,
+            LogID:            wfExeEntity.LogID,
+            NodeEvents:       make([]*workflow.NodeEvent, 0),
+        },
+    }
+    
+    // 5. 转换 Token 使用信息
+    if wfExeEntity.TokenInfo != nil {
+        resp.Data.TokenAndCost = &workflow.TokenAndCost{
+            InputTokens:  ptr.Of(fmt.Sprintf("%d Tokens", wfExeEntity.TokenInfo.InputTokens)),
+            OutputTokens: ptr.Of(fmt.Sprintf("%d Tokens", wfExeEntity.TokenInfo.OutputTokens)),
+            TotalTokens:  ptr.Of(fmt.Sprintf("%d Tokens", wfExeEntity.TokenInfo.InputTokens+wfExeEntity.TokenInfo.OutputTokens)),
+        }
+    }
+    
+    // 6. 转换节点执行结果
+    batchNodeID2NodeResult := make(map[string]*workflow.NodeResult)
+    successNum := 0
+    for _, nodeExe := range wfExeEntity.NodeExecutions {
+        // 转换节点执行记录为 NodeResult
+        nr, err := convertNodeExecution(nodeExe)
+        
+        if nr.NodeStatus == workflow.NodeExeStatus_Success {
+            successNum++
+        }
+        
+        resp.Data.NodeResults = append(resp.Data.NodeResults, nr)
+    }
+    
+    // 7. 计算成功率
+    if wfExeEntity.NodeCount > 0 {
+        resp.Data.Rate = fmt.Sprintf("%.2f", float64(successNum)/float64(wfExeEntity.NodeCount))
+    }
+    
+    // 8. 处理中断事件
+    for _, ie := range wfExeEntity.InterruptEvents {
+        resp.Data.NodeEvents = append(resp.Data.NodeEvents, &workflow.NodeEvent{
+            EventID:     fmt.Sprintf("%d", ie.ID),
+            EventType:   string(ie.EventType),
+            InterruptData: ie.InterruptData,
+        })
+    }
+    
+    return resp, nil
+}
+
+// 转换节点执行记录
+func convertNodeExecution(nodeExe *entity.NodeExecution) (*workflow.NodeResult, error) {
+    nr := &workflow.NodeResult{
+        NodeId:      nodeExe.NodeID,
+        NodeName:    nodeExe.NodeName,
+        NodeType:    entity.NodeMetaByNodeType(nodeExe.NodeType).GetDisplayKey(),
+        NodeStatus:  workflow.NodeExeStatus(nodeExe.Status),  // 2: 成功, 3: 失败
+        ErrorInfo:   ptr.FromOrDefault(nodeExe.ErrorInfo, ""),
+        Input:       ptr.FromOrDefault(nodeExe.Input, ""),
+        Output:      ptr.FromOrDefault(nodeExe.Output, ""),
+        NodeExeCost: fmt.Sprintf("%.3fs", nodeExe.Duration.Seconds()),
+        RawOutput:   nodeExe.RawOutput,
+        ErrorLevel:  ptr.FromOrDefault(nodeExe.ErrorLevel, ""),
+    }
+    
+    // 转换 Token 信息
+    if nodeExe.TokenInfo != nil {
+        nr.TokenAndCost = &workflow.TokenAndCost{
+            InputTokens:  ptr.Of(fmt.Sprintf("%d Tokens", nodeExe.TokenInfo.InputTokens)),
+            OutputTokens: ptr.Of(fmt.Sprintf("%d Tokens", nodeExe.TokenInfo.OutputTokens)),
+            TotalTokens:  ptr.Of(fmt.Sprintf("%d Tokens", nodeExe.TokenInfo.InputTokens+nodeExe.TokenInfo.OutputTokens)),
+        }
+    }
+    
+    return nr, nil
+}
+```
+
+**SSE 事件类型说明**：
+
+| 事件类型 | 说明 | 数据格式 |
+|---------|------|---------|
+| `conversation.message.delta` | LLM 增量输出 | `{"id":"...","content":"被",...}` |
+| `conversation.message.completed` | 消息完成 | `{"id":"...","content":"完整内容",...}` |
+| `conversation.created` | 会话创建 | `{"id":"...","status":"created",...}` |
+| `conversation.in_progress` | 执行中 | `{"id":"...","status":"in_progress",...}` |
+| `conversation.completed` | 执行完成 | `{"id":"...","status":"completed",...}` |
+| `conversation.done` | 执行结束 | `{"debug_url":"..."}` |
+| `conversation.error` | 执行错误 | `{"code":"...","msg":"..."}` |
+
+**GetProcess 响应字段说明**：
+
+| 字段 | 说明 | 示例值 |
+|------|------|--------|
+| `executeStatus` | 执行状态 | `1`: 运行中, `2`: 成功, `3`: 失败 |
+| `nodeResults` | 节点执行结果列表 | `[{nodeId, nodeStatus, input, output, ...}]` |
+| `nodeStatus` | 节点状态 | `2`: 成功, `3`: 失败 |
+| `rate` | 成功率 | `"0.33"` (33%) |
+| `tokenAndCost` | Token 使用情况 | `{inputTokens, outputTokens, totalTokens}` |
+
+#### 4.2.3 完整执行流程详解（Workflow 内部执行）
+
+#### 4.2.4 核心代码流程（Workflow 内部执行）
 
 **阶段一：Workflow 启动与准备**
 
@@ -1468,7 +2437,7 @@ func (p *pluginServiceImpl) ExecuteTool(ctx context.Context, req *model.ExecuteT
 }
 ```
 
-#### 4.2.4 执行流程图总结
+#### 4.2.5 执行流程图总结
 
 ```mermaid
 flowchart TD
@@ -1498,7 +2467,7 @@ flowchart TD
     style O fill:#fff4e1
 ```
 
-#### 4.2.5 关键差异对比
+#### 4.2.6 关键差异对比
 
 | 特性 | Function Calling（LLM 节点） | 直接调用（插件节点） |
 |------|------------------------------|---------------------|
@@ -1508,7 +2477,7 @@ flowchart TD
 | **结果处理** | 返回给 LLM 继续推理 | 作为节点输出传递 |
 | **适用场景** | 智能决策、动态调用 | 确定性流程、数据获取 |
 
-#### 4.2.6 执行上下文传递
+#### 4.2.7 执行上下文传递
 
 无论是 Function Calling 还是直接调用，都会传递 Workflow 的执行上下文：
 
