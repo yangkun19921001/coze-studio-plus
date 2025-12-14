@@ -60,6 +60,7 @@ export const PageList: FC<{
     curData?: TaskListServiceRes,
   ) => Promise<TaskListServiceRes>;
   customFilters?: React.ReactNode;
+  refreshTrigger?: number; // 刷新触发器，当值变化时触发刷新
 }> = ({
   title,
   type,
@@ -67,6 +68,7 @@ export const PageList: FC<{
   getDataList,
   renderCardSkeleton,
   customFilters,
+  refreshTrigger,
 }) => {
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -78,7 +80,7 @@ export const PageList: FC<{
   } = useInfiniteScroll(
     async (curData?: TaskListServiceRes) => await getDataList(type, curData),
     {
-      reloadDeps: [type],
+      reloadDeps: [type, refreshTrigger], // 添加 refreshTrigger 到依赖项
       isNoMore: d => !d?.has_more,
       onFinally: d => {
         setLoadFailed(!d?.list.length);

@@ -49,6 +49,7 @@ export const PluginPage = () => {
     {},
   );
   const [showMcpConfigModal, setShowMcpConfigModal] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const { data: enableSaaSPlugin } = useRequest(async () => {
     const res = await explore.PublicGetMarketPluginConfig({});
@@ -138,11 +139,16 @@ export const PluginPage = () => {
         customFilters={customFilters}
         renderCard={data => <PluginCard {...(data as PluginCardProps)} />}
         renderCardSkeleton={() => <PluginCardSkeleton />}
+        refreshTrigger={refreshTrigger}
       />
       {usageInvokeModal}
       <McpConfigModal
         visible={showMcpConfigModal}
         onClose={() => setShowMcpConfigModal(false)}
+        onSuccess={() => {
+          // 触发刷新列表
+          setRefreshTrigger(prev => prev + 1);
+        }}
       />
     </>
   );

@@ -102,7 +102,7 @@ func (p *pluginServiceImpl) UpdateMcpPlugin(ctx context.Context, req *dto.Update
 	}
 
 	if len(cursorConfig.McpServers) == 0 {
-		return errorx.New(errno.ErrPluginInvalidParamCode, errorx.KV(errno.PluginMsgKey, "MCP config must contain at least one server"))
+		// return errorx.New(errno.ErrPluginInvalidParamCode, errorx.KV(errno.PluginMsgKey, "MCP config must contain at least one server"))
 	}
 
 	// Convert cursor format to internal format for validation

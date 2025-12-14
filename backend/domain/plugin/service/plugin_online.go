@@ -90,14 +90,16 @@ func (p *pluginServiceImpl) MGetVersionTools(ctx context.Context, versionTools [
 }
 
 func (p *pluginServiceImpl) ListPluginProducts(ctx context.Context, req *dto.ListPluginProductsRequest) (resp *dto.ListPluginProductsResponse, err error) {
+	// 1. 从内存缓存获取所有插件产品（来自 plugin_meta.yaml）
 	plugins := slices.Transform(pluginConf.GetAllPluginProducts(), func(p *pluginConf.PluginInfo) *entity.PluginInfo {
 		return entity.NewPluginInfo(p.Info)
 	})
+	// 2. 按产品 ID 排序
 	sort.Slice(plugins, func(i, j int) bool {
 		return plugins[i].GetRefProductID() < plugins[j].GetRefProductID()
 	})
 
-	// official plugins
+	// 3. 获取官方插件（从数据库）
 	officialPlugins, _, err := p.pluginRepo.ListCustomOnlinePlugins(ctx, 999999, dto.PageInfo{
 		Page:       1,
 		Size:       1000,
@@ -107,7 +109,7 @@ func (p *pluginServiceImpl) ListPluginProducts(ctx context.Context, req *dto.Lis
 	if err != nil {
 		return nil, errorx.Wrapf(err, "ListCustomOnlinePlugins failed, spaceID=999999")
 	}
-
+	// 4. 合并官方插件
 	plugins = append(plugins, officialPlugins...)
 
 	return &dto.ListPluginProductsResponse{

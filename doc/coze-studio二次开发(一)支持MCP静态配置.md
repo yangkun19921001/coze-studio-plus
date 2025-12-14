@@ -1,26 +1,32 @@
-# Coze Studio 二次开发（一）支持 MCP 静态配置
+# Coze Studio 二次开发（一）支持静态配置  MCP 
 
 ## 背景
 
-Coze Studio 是一个开源的 AI 低代码工作流开发平台，它提供了完整的插件系统来扩展 AI 模型的能力。插件系统允许开发者通过标准化的方式集成外部服务，使 AI 模型能够调用各种工具和服务。
+`Coze Studio` 是一个开源的 AI 低代码工作流开发平台，它提供了完整的插件系统来扩展 AI 模型的能力。该插件系统允许开发者通过标准化的方式集成外部服务，使 AI 模型能够调用各种工具和服务。
 
-通过之前分析源码得知 [coze-studio源码分析(二)后端插件架构深度剖析与二次开发实战准备](https://mp.weixin.qq.com/s/q-nSAEaXOMuVHgOxKGrhpA) coze-studio 目前只支持 HTTP 、自定义插件，想要支持配置 mcpserver 就不得不止步了。所以就萌发出了基于 coze-studio 来开发一个支持配置 mcpserver 的功能，让 coze-studio 更加完善。
+从之前的源码分析[`Coze Studio`源码分析(二)后端插件架构深度剖析与二次开发实战准备](https://mp.weixin.qq.com/s/q-nSAEaXOMuVHgOxKGrhpA)中得知，`Coze Studio` 目前仅支持 HTTP 和自定义插件。如果想要支持 MCP Server 配置，就无法继续。因此，我萌生了基于 `Coze Studio` 开发支持 MCP Server 配置的功能的想法，以使 `Coze Studio` 更加完善。
 
 
 
-### 为什么选择  Coze Studio？
+### 为什么选择  `Coze Studio`？
 
-在 AI 低代码开发领域，目前调研了 Dify 、n8n 、coze-studio 等具有代表性的成熟解决方案。选择 coze-studio 主要的原因是内部基于 Go 语言开发，对我个人来说天然的友好，我不再需要去学习其它语言，当然还有以下几个因素考虑：
+在 AI 低代码开发领域，目前调研了 Dify 、n8n 、`Coze Studio` 等具有代表性的成熟解决方案。选择 `Coze Studio` 主要的原因是内部基于 Go 语言开发，对我个人来说可是天然的友好啊，我不用再去学习其它语言，当然还有以下几个因素考虑：
 
 1. **语言偏好**：Go 语言的简洁性、并发模型和编译型特性，使得系统具备更好的性能和可维护性
-2. **架构清晰**：Coze Studio 采用 DDD（领域驱动设计）架构，代码结构清晰，易于扩展
+
+2. **架构清晰**：`Coze Studio` 采用 DDD（领域驱动设计）架构，代码结构清晰，易于扩展
+
 3. **开源可控**：完全开源，可以根据业务需求进行深度定制
+
 4. **插件系统完善**：已有的插件架构为扩展新协议提供了良好的基础
+
 5. **Dify/n8n**: 都是 TypeScript 开发语言为主，不符合我当前技术选型
+
+   
 
 ## 插件加载执行流程（简要回顾）
 
-在深入 MCP 支持实现之前，我们先简要回顾一下 coze-studio 的插件加载流程。
+在深入 MCP 支持实现之前，我们先简要回顾一下 `Coze Studio` 的插件加载流程。
 
 ### 初始化流程
 
@@ -269,7 +275,7 @@ func (c *Client) Initialize(ctx context.Context) error {
     initRequest := mcp.InitializeRequest{}
     initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
     initRequest.Params.ClientInfo = mcp.Implementation{
-        Name:    "coze-studio",
+        Name:    "`Coze Studio`",
         Version: "1.0.0",
     }
     
@@ -465,7 +471,7 @@ func (l *mcpToolLoader) LoadMCPTools(
 
 #### 2.4 MCP Tool 到 ToolInfo 转换
 
-MCP Tool 需要转换为 Coze Studio 的 `ToolInfo` 格式，关键是将 MCP 的 JSON Schema 转换为 OpenAPI Operation：
+MCP Tool 需要转换为 `Coze Studio` 的 `ToolInfo` 格式，关键是将 MCP 的 JSON Schema 转换为 OpenAPI Operation：
 
 ```go
 // convertMCPToolToToolInfo 将 MCP Tool 转换为 ToolInfo
@@ -703,31 +709,26 @@ func newToolInvocation(t *toolExecutor) tool.Invocation {
   product_id: 7600000000000000101
   deprecated: false
   version: v1.0.0
-  openapi_doc_file: pairat_remote_exec.yaml  # MCP 插件可以忽略此字段
+  openapi_doc_file:   # MCP 插件可以忽略此字段
   plugin_type: 1
   manifest:
     schema_version: v1
-    name_for_model: pairat_remote_exec_yaml
-    name_for_human: Pairat Remote Exec
+    name_for_model: 远程执行命令MCP
+    name_for_human: 远程执行命令MCP
     description_for_model: 通过 MCP 协议在远程机器上执行命令或脚本
     description_for_human: 远程命令执行工具，基于 MCP 协议实现安全的远程操作
     auth:
       type: none
     logo_url: official_plugin_icon/plugin_remote_exec.png
     api:
-      type: coze-studio-mcp  # 标识为 MCP 插件
+      type: `Coze Studio`-mcp  # 标识为 MCP 插件
       extensions:
         mcp_config:  # MCP 配置
           transport_type: sse  # 或 stdio
           sse_config:
-            url: http://10.1.16.4:8000/mcp/sse
+            url: http://10.x.x.x:8000/mcp/sse
             headers:
               Content-Type: application/json
-          # 或 stdio_config:
-          #   command:
-          #     - /path/to/mcp-server
-          #   env:
-          #     KEY: value
     common_params:
       body: []
       header: []
@@ -738,7 +739,7 @@ func newToolInvocation(t *toolExecutor) tool.Invocation {
 
 **配置说明**：
 
-1. **`api.type`**：必须设置为 `coze-studio-mcp`
+1. **`api.type`**：必须设置为 ``Coze Studio`-mcp`
 2. **`api.extensions.mcp_config`**：MCP 服务器配置
    - `transport_type`：传输类型（`stdio` 或 `sse`）
    - `sse_config`：SSE 传输配置（包含 URL 和 Headers）
@@ -747,15 +748,71 @@ func newToolInvocation(t *toolExecutor) tool.Invocation {
 
 ## 验证成果
 
-（此部分由用户自行编写）
+### 1. 先在配置文件中进行配置 mcpserver
+
+![image-20251212160845027](http://devyk.top/2022/202512121608946.png)
+
+### 2. 重启服务，探索插件
+
+![image-20251212160937194](http://devyk.top/2022/202512121609524.png)
+
+可以看到，前端的探索已经出现了我们刚刚配置的远程执行命令的插件
+
+###  3. 验证结果
+
+为了验证结果，我们编写一个工作流
+
+![image-20251212163520774](http://devyk.top/2022/202512121635053.png)
+
+![image-20251212163939172](http://devyk.top/2022/202512121639691.png)
+
+
+
+可以看到，我们成功的配置了 mcpservers ，并且 `Coze Studio` 在工作流中也正常的调用了 mcp 远程执行命令的插件。
+
+
+
+
+
+## 如何使用: 
+
+下载代码，并初始化后端 & 容器 & db 环境
+
+```shell
+git clone https://github.com/yangkun19921001/`Coze Studio`-plus
+cd `Coze Studio`-plus
+./start_vs_debug.sh
+```
+
+运行后端服务
+
+```json
+        {
+            "name": "`Coze Studio` Backend (Debug)",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}/`Coze Studio`/backend/main.go",
+            "cwd": "${workspaceFolder}/`Coze Studio`/backend",
+            "console": "integratedTerminal",
+            "env": {
+                "APP_ENV": "debug",
+                "LOG_LEVEL": "debug"
+            },
+            "args": [],
+            "showLog": false
+        }
+```
+
+
 
 ## 总结
 
-本文介绍了在 Coze Studio 中实现 MCP 静态配置支持的方法。核心思路是在保持原有架构不变的前提下，通过插件类型判断和分支处理，为 MCP 插件提供独立的加载路径。实现包括 MCP 客户端封装、配置解析、工具动态加载、Schema 转换以及执行器集成等关键环节。
+本文介绍了在 `Coze Studio` 中实现 MCP 静态配置支持的方法。核心思路是在保持原有架构不变的前提下，通过插件类型判断和分支处理，为 MCP 插件提供独立的加载路径。实现包括 MCP 客户端封装、配置解析、工具动态加载、Schema 转换以及执行器集成等关键环节。
 
 通过静态配置方式，开发者可以在 `plugin_meta.yaml` 中配置 MCP 服务器信息，系统启动时自动加载并注册工具。这种方式适合固定的、预定义的 MCP 服务器场景。
 
-## 下一步
+**下一步**
 
 目前实现的静态配置方式需要修改配置文件并重启服务才能生效。在实际使用中，我们更希望能像 Cursor 那样，通过 UI 界面动态添加、删除和管理 MCP 服务器，无需重启服务。下一篇将介绍如何实现 MCP 服务器的动态配置功能，包括：
 

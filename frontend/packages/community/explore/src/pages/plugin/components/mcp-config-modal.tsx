@@ -21,6 +21,7 @@ import { Modal, Button, TextArea, Toast } from '@coze-arch/coze-design';
 interface McpConfigModalProps {
   visible: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
 interface McpServerConfig {
@@ -56,7 +57,22 @@ const MIN_SERVER_COUNT = 0;
 const getDefaultConfig = (): McpConfig => ({
   mcpServers: {
     'remote-exec': {
-      url: 'http://10.1.48.133:8001/sse',
+      url: 'http://1.1.1.1:8001/sse',
+      transport_type: 'sse',
+    },
+    'pairat-remote-exec': {
+      url: 'http://1.1.1.4:8000/mcp/sse',
+      transport_type: 'sse',
+    },
+    web_search: {
+      transport_type: 'stdio',
+      command: 'npx',
+      args: ['-y', 'websearch-mcp'],
+      env: {
+        MAX_SEARCH_RESULT: '5',
+        LANGUAGE: 'en',
+        REGION: 'us',
+      },
     },
   },
 });
@@ -91,6 +107,7 @@ const mergePluginConfigs = (plugins: McpPlugin[]): McpConfig => {
 export const McpConfigModal: React.FC<McpConfigModalProps> = ({
   visible,
   onClose,
+  onSuccess,
 }) => {
   const [configJson, setConfigJson] = useState('');
   const [loading, setLoading] = useState(false);
@@ -215,8 +232,7 @@ export const McpConfigModal: React.FC<McpConfigModalProps> = ({
 
     const createData = (await createRes.json()) as McpPluginListResponse;
     if (createData.code !== 0) {
-      const errorMsg =
-        createData.message || createData.data?.error || '创建失败';
+      const errorMsg = createData.message || '创建失败';
       throw new Error(errorMsg);
     }
   };
@@ -236,6 +252,7 @@ export const McpConfigModal: React.FC<McpConfigModalProps> = ({
       }
 
       Toast.success('MCP配置保存成功');
+      onSuccess?.(); // 触发刷新列表
       onClose();
     } catch (error) {
       console.error('Failed to save MCP config:', error);
